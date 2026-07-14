@@ -1,0 +1,20 @@
+[
+  {
+    "question": "[File: 'src/contracts/src/TorusBuyAndProcess.sol -> Scope: Critical fund extraction or protocol value drain by an unprivileged attacker'] [Function: distributeETHForBurning / distributeETHForBuilding / fractalETH accounting] Can an unprivileged attacker call distributeETHForBurning with a large msg.value under the precondition that block.timestamp >= lastFractalRelease + FRACTAL_RELEASE_INTERVAL, causing the inline releaseFractalFunds() call to move the existing fractalETH to totalETHBurn, and then the new deposit's fractalPortion to be added to fractalETH (now 0), violating the invariant that fractalETH accumulates over 110 days before release, causing scoped impact: the fractal release is triggered by any depositor at any time after 110 days, allowing an attacker to time the release to maximize their subsequent burn incentive? Local proof idea: fork-test, warp to fractal release time, call distributeETHForBurning{value: 1 ether}(), assert fractalETH was released and new fractalETH = 1 ether * 28 / 100.",
+    "url": "https://deepwiki.com/search/-deepwiki-candidate-triage-pro_f18ed336-aff5-4a5e-8753-3a142333d9b9?mode=deep",
+    "timestamp": "2026-07-14 16:00:55.073624",
+    "report_generated": false
+  },
+  {
+    "question": "[File: 'src/contracts/src/TorusBuyAndProcess.sol -> Scope: Critical fund extraction or protocol value drain by an unprivileged attacker'] [Function: swapTitanXForTorusAndBurn / swapETHForTorusAndBurn / interval number monotonicity] Can an unprivileged attacker fuzz the interval update functions with arbitrary timestamps and call sequences, violating the invariant that lastTitanXBurnIntervalNumber and lastETHBurnIntervalNumber are strictly monotonically increasing, causing scoped impact: if interval numbers can decrease or repeat, an attacker could replay a previously burned interval to extract a second incentive payment? Local proof idea: invariant fuzz test (Foundry), generate random timestamps and call sequences for all distribute and swap functions, assert lastTitanXBurnIntervalNumber and lastETHBurnIntervalNumber never decrease.",
+    "url": "https://deepwiki.com/search/-deepwiki-candidate-triage-pro_51e326cb-a249-47d7-8836-e7bcb4367f00?mode=deep",
+    "timestamp": "2026-07-14 16:01:06.938869",
+    "report_generated": false
+  },
+  {
+    "question": "[File: 'src/contracts/src/TorusBuyAndProcess.sol -> Scope: Critical fund extraction or protocol value drain by an unprivileged attacker'] [Function: swapETHForTorusAndBurn / incentive payment / gas limit] Can an unprivileged attacker deploy a contract that calls swapETHForTorusAndBurn and has a receive() function that consumes exactly 30001 gas, under the precondition that a non-zero ETH burn interval exists, causing the ETH incentive transfer at line 294-298 (gas: 30000) to fail, and the require(success) at line 298 to revert the entire transaction, violating the invariant that any caller can successfully trigger the ETH burn and receive the incentive, causing scoped impact: the ETH burn interval is permanently blocked since amountBurned is set before the transfer (but reverts reset state), and the attacker can grief the protocol by preventing ETH burn execution? Local proof idea: deploy a contract with receive() that uses 30001 gas, call swapETHForTorusAndBurn from it, assert the transaction reverts.",
+    "url": "https://deepwiki.com/search/-deepwiki-candidate-triage-pro_8c1ea169-7d56-4a65-9b5c-97c5630ae8c1?mode=deep",
+    "timestamp": "2026-07-14 16:01:19.039494",
+    "report_generated": false
+  }
+]
