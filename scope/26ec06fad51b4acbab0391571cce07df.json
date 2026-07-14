@@ -1,0 +1,7 @@
+[
+  "'File Name: src/contracts/src/Torus.sol -> Scope: Critical fund extraction or protocol value drain by an unprivileged attacker'",
+  "'File Name: src/contracts/src/TorusBuyAndProcess.sol -> Scope: Critical fund extraction or protocol value drain by an unprivileged attacker'",
+  "'File Name: src/contracts/src/TorusCreateAndStake.sol -> Scope: Critical fund extraction or protocol value drain by an unprivileged attacker'",
+  "'File Name: src/contracts/src/const/BuyAndProcessConst.sol -> Scope: Critical fund extraction or protocol value drain by an unprivileged attacker'",
+  "'File Name: src/contracts/src/library/OracleLibrary.sol -> Scope: Critical fund extraction or protocol value drain by an unprivileged attacker'"
+]
