@@ -1,0 +1,152 @@
+[
+  {
+    "question": "[File: 'src/contracts/src/TorusBuyAndProcess.sol -> Scope: Critical fund extraction or protocol value drain by an unprivileged attacker'] [Function: distributeTitanXForBuilding / distributeTitanXForBurning] Can an unprivileged attacker observe the asymmetry that distributeTitanXForBurning splits TitanX into fractalTitanX (28%) and totalTitanXBurn (72%), while distributeTitanXForBuilding puts 100% into totalTitanXForBuild with no fractal split, under the precondition that both functions are callable by anyone, causing the build pool to have 100% of deposited TitanX immediately available for interval allocation, violating the invariant that both pools have symmetric fractal-reserve mechanics, causing scoped impact: attacker can deposit TitanX to the build pool and immediately trigger swapTitanXForTorusAndBuild to extract 1.5% incentive on 100% of the deposit, vs only 72% in the burn pool? Local proof idea: unit-test, deposit 1e18 TitanX to each function, compare immediately extractable incentive from each pool.",
+    "url": "https://deepwiki.com/search/-deepwiki-candidate-triage-pro_b18a487e-3b87-462b-a4c4-44ad3e5da049?mode=deep",
+    "timestamp": "2026-07-14 15:57:40.120177",
+    "report_generated": false
+  },
+  {
+    "question": "[File: 'src/contracts/src/TorusBuyAndProcess.sol -> Scope: Critical fund extraction or protocol value drain by an unprivileged attacker'] [Function: _calculateIntervalsTitanXBurn / uint128 truncation] Can an unprivileged attacker trigger a uint128 truncation in _calculateIntervalsTitanXBurn under the precondition that totalTitanXBurn exceeds type(uint128).max (~3.4e38), causing the cap at line 598-600 (uint128(totalTitanXBurn)) to silently truncate the value, resulting in _totalAmountForInterval being set to a truncated (much smaller) value, violating the invariant that interval allocation is correctly bounded by totalTitanXBurn, causing scoped impact: interval allocation is silently reduced, causing the burn function to swap far less TitanX than intended and the incentive to be proportionally smaller? Local proof idea: fuzz test with totalTitanXBurn > 2^128, call _calculateIntervalsTitanXBurn, assert _totalAmountForInterval == totalTitanXBurn % 2^128 (truncated).",
+    "url": "https://deepwiki.com/search/-deepwiki-candidate-triage-pro_6bcb485a-cca4-4c06-afef-9afecb37c267?mode=deep",
+    "timestamp": "2026-07-14 15:57:51.846081",
+    "report_generated": false
+  },
+  {
+    "question": "[File: 'src/contracts/src/TorusBuyAndProcess.sol -> Scope: Critical fund extraction or protocol value drain by an unprivileged attacker'] [Function: swapTitanXForTorusAndBuild / totalTitanXForBuild underflow] Can an unprivileged attacker trigger an underflow in totalTitanXForBuild at line 961 (totalTitanXForBuild -= titanXToUse + incentive) under the precondition that totalTitanXForBuild is exactly equal to currInterval.amountAllocated but rounding in _calculateIntervalsTitanXBuild causes amountAllocated to slightly exceed totalTitanXForBuild, causing a Solidity 0.8 underflow revert, violating the invariant that totalTitanXForBuild always covers the allocated amount, causing scoped impact: the build function is permanently bricked for that interval, locking TitanX in the contract? Local proof idea: fuzz test with totalTitanXForBuild values near interval allocation boundaries, assert no underflow revert occurs.",
+    "url": "https://deepwiki.com/search/-deepwiki-candidate-triage-pro_0c4ad266-85db-4f1f-af8d-999300719e7a?mode=deep",
+    "timestamp": "2026-07-14 15:58:04.664875",
+    "report_generated": false
+  },
+  {
+    "question": "[File: 'src/contracts/src/TorusBuyAndProcess.sol -> Scope: Critical fund extraction or protocol value drain by an unprivileged attacker'] [Function: swapETHForTorusAndBuild / totalETHForBuild underflow] Can an unprivileged attacker trigger an underflow in totalETHForBuild at line 915 (totalETHForBuild -= ethToSwapAndBuild + incentive) under the precondition that totalETHForBuild is exactly equal to currInterval.amountAllocated but rounding in _calculateIntervalsETHBuild causes amountAllocated to slightly exceed totalETHForBuild, causing a Solidity 0.8 underflow revert, violating the invariant that totalETHForBuild always covers the allocated amount, causing scoped impact: the ETH build function is permanently bricked for that interval? Local proof idea: fuzz test with totalETHForBuild values near interval allocation boundaries, assert no underflow revert occurs.",
+    "url": "https://deepwiki.com/search/-deepwiki-candidate-triage-pro_a1156c5e-59be-4c7f-9200-69cf3c5d77de?mode=deep",
+    "timestamp": "2026-07-14 15:58:17.330909",
+    "report_generated": false
+  },
+  {
+    "question": "[File: 'src/contracts/src/TorusBuyAndProcess.sol -> Scope: Critical fund extraction or protocol value drain by an unprivileged attacker'] [Function: burnFees / burnTorus / totalTorusBurnt] Can an unprivileged attacker call burnFees() when the contract holds Torus (from a previous partial operation) under the precondition that torusToken.balanceOf(address(this)) > 0, causing burnTorus() to be called which increments totalTorusBurnt by the balance, and then separately call burnTorus() again if more Torus arrives, violating the invariant that totalTorusBurnt accurately reflects the cumulative Torus destroyed, causing scoped impact: totalTorusBurnt is inflated by double-counting from both burnFees() and direct burnTorus() calls on the same Torus balance? Local proof idea: fork-test, call burnFees() then burnTorus() in sequence, assert totalTorusBurnt == actual Torus burned (not 2x).",
+    "url": "https://deepwiki.com/search/-deepwiki-candidate-triage-pro_2ddfe114-aa81-4e4f-9851-77deb8268c8a?mode=deep",
+    "timestamp": "2026-07-14 15:58:30.629084",
+    "report_generated": false
+  },
+  {
+    "question": "[File: 'src/contracts/src/TorusBuyAndProcess.sol -> Scope: Critical fund extraction or protocol value drain by an unprivileged attacker'] [Function: swapTitanXForTorusAndBurn / releaseFractalFunds / totalTitanXBurn] Can an unprivileged attacker exploit the ordering of operations in swapTitanXForTorusAndBurn where totalTitanXBurn is decremented at line 247 BEFORE releaseFractalFunds() is called at line 249-251, under the precondition that block.timestamp >= lastFractalRelease + FRACTAL_RELEASE_INTERVAL, causing releaseFractalFunds() to add fractalTitanX back to totalTitanXBurn after the decrement, violating the invariant that totalTitanXBurn reflects the correct pre-swap balance, causing scoped impact: the next interval's allocation is calculated on a totalTitanXBurn that includes the fractal release, potentially allowing a larger allocation than intended for the immediately following interval? Local proof idea: fork-test, warp to fractal release time, call swapTitanXForTorusAndBurn, assert totalTitanXBurn after == totalTitanXBurn_before - amountAllocated + fractalTitanX.",
+    "url": "https://deepwiki.com/search/-deepwiki-candidate-triage-pro_3e6a2d1e-f7e0-41dc-9484-f07ec48e1f8a?mode=deep",
+    "timestamp": "2026-07-14 15:58:44.727720",
+    "report_generated": false
+  },
+  {
+    "question": "[File: 'src/contracts/src/TorusBuyAndProcess.sol -> Scope: Critical fund extraction or protocol value drain by an unprivileged attacker'] [Function: _intervalUpdateTitanXForBurning / _calculateIntervalsTitanXBurn] Can an unprivileged attacker exploit the interval update logic where lastBurnedTitanXIntervalStartTimestamp is initialized to startTimestamp (not 0) in the constructor, causing the lastBurnedTitanXIntervalStartTimestamp == 0 branch in _intervalUpdateTitanXForBurning (line 648) to be dead code, and the actual timeElapsed calculation (line 642) to use lastBurnedTitanXIntervalStartTimestamp, under the precondition that the first call happens long after startTimestamp, causing missedIntervals to be calculated as (timeElapsed / INTERVAL_TIME) - 1 instead of timeElapsed / INTERVAL_TIME, violating the invariant that all elapsed intervals since start are accounted for, causing scoped impact: one interval's worth of allocation is permanently lost on the first call? Local proof idea: unit-test, deploy contract, warp 10 intervals, call swapTitanXForTorusAndBurn, assert lastTitanXBurnIntervalNumber == 10 (not 9).",
+    "url": "https://deepwiki.com/search/-deepwiki-candidate-triage-pro_b29b80d5-e288-439e-9ac3-cc4c44c82696?mode=deep",
+    "timestamp": "2026-07-14 15:58:58.028172",
+    "report_generated": false
+  },
+  {
+    "question": "[File: 'src/contracts/src/TorusBuyAndProcess.sol -> Scope: Critical fund extraction or protocol value drain by an unprivileged attacker'] [Function: swapETHForTorusAndBuild / swapTitanXForTorusAndBuild / burnTorus] Can an unprivileged attacker call burnTorus() between two separate transactions where the first transaction's _swapTitanXForTorus has deposited Torus to the contract but _addLiquidityBuild has not yet been called, under the precondition that the build functions use nonReentrant but burnTorus() does not, causing the Torus intended for liquidity addition to be burned before it can be added to the LP, violating the invariant that Torus acquired for building is always added to the LP position, causing scoped impact: protocol Torus is burned instead of being added to LP, reducing protocol-owned liquidity? Local proof idea: fork-test, simulate a state where the contract holds Torus mid-build (e.g., via direct transfer), call burnTorus() from an EOA, assert LP liquidity is less than expected.",
+    "url": "https://deepwiki.com/search/-deepwiki-candidate-triage-pro_6ee75d25-9567-4485-b5c2-d4d0c2bd5c64?mode=deep",
+    "timestamp": "2026-07-14 15:59:11.157873",
+    "report_generated": false
+  },
+  {
+    "question": "[File: 'src/contracts/src/TorusBuyAndProcess.sol -> Scope: Critical fund extraction or protocol value drain by an unprivileged attacker'] [Function: addLiquidityToTorusTitanXPool / torusToken.mintTokensForLP] Can an unprivileged attacker call addLiquidityToTorusTitanXPool() under the precondition that liquidityAdded==false and totalTitanXBurn >= INITIAL_TITAN_X_FOR_LIQ, causing torusToken.mintTokensForLP() to mint INITIAL_LP_MINT (20_000e18) Torus to the contract, and then the liquidity is added at a price determined by the current pool state (which the attacker may have manipulated), violating the invariant that initial LP seeding occurs at a fair price, causing scoped impact: attacker pre-positions in the pool at a manipulated price, seeds LP at that price, then arbitrages the resulting mispriced pool to extract value? Local proof idea: fork-test pre-liquidity, manipulate pool sqrtPrice via flash swap, call addLiquidityToTorusTitanXPool, measure arbitrage profit available immediately after.",
+    "url": "https://deepwiki.com/search/-deepwiki-candidate-triage-pro_5a134370-cf50-4600-b71f-2309fb1bfc30?mode=deep",
+    "timestamp": "2026-07-14 15:59:24.840751",
+    "report_generated": false
+  },
+  {
+    "question": "[File: 'src/contracts/src/TorusBuyAndProcess.sol -> Scope: Critical fund extraction or protocol value drain by an unprivileged attacker'] [Function: burnFees / POSITION_MANAGER.collect] Can an unprivileged attacker call burnFees() repeatedly under the precondition that the LP position has accrued fees, causing each call to collect all available fees (amount0Max and amount1Max are both type(uint128).max), and the TitanX portion is sent to genesisWallet while the Torus portion is burned, violating the invariant that fee collection is rate-limited or access-controlled, causing scoped impact: attacker can front-run legitimate fee collection to ensure fees are distributed at a time that benefits the attacker (e.g., when genesisWallet is compromised or when burning Torus at a specific price benefits the attacker's position)? Local proof idea: fork-test, call burnFees() from an arbitrary EOA, assert TitanX transferred to genesisWallet and Torus burned.",
+    "url": "https://deepwiki.com/search/-deepwiki-candidate-triage-pro_2ddd2b99-c210-4227-bc7e-dfcc0644fc29?mode=deep",
+    "timestamp": "2026-07-14 15:59:38.024175",
+    "report_generated": false
+  },
+  {
+    "question": "[File: 'src/contracts/src/TorusBuyAndProcess.sol -> Scope: Critical fund extraction or protocol value drain by an unprivileged attacker'] [Function: swapTitanXForTorusAndBurn / swapETHForTorusAndBurn / incentive calculation] Can an unprivileged attacker observe that the incentive is calculated as (currInterval.amountAllocated * INCENTIVE_FEE) / BPS_DENOM = amountAllocated * 150 / 10000, and that amountAllocated can be up to totalTitanXBurn (when many intervals are missed), under the precondition that totalTitanXBurn is large (currently ~390e27 TitanX), causing the incentive to be up to 1.5% of the entire burn pool, violating the invariant that per-call incentive is bounded by 1.5% of a single interval's allocation (not the entire pool), causing scoped impact: attacker waits for maximum interval accumulation then extracts 1.5% of the entire TitanX burn pool as a single incentive payment? Local proof idea: fork-test, warp 30 days, call swapTitanXForTorusAndBurn, assert incentive == 150 * min(totalTitanXBurn, amountPerInterval * (1 + missedIntervals)) / 10000.",
+    "url": "https://deepwiki.com/search/-deepwiki-candidate-triage-pro_ae66c962-36ca-4bbb-b3dc-d1c6ff99bcba?mode=deep",
+    "timestamp": "2026-07-14 15:59:50.957668",
+    "report_generated": false
+  },
+  {
+    "question": "[File: 'src/contracts/src/TorusBuyAndProcess.sol -> Scope: Critical fund extraction or protocol value drain by an unprivileged attacker'] [Function: _intervalUpdateTitanXForBurning / _intervalUpdateETHForBurning / state transition] Can an unprivileged attacker call distributeTitanXForBurning or distributeETHForBurning to trigger _intervalUpdateTitanXForBurning or _intervalUpdateETHForBurning under the precondition that timeElapsed > INTERVAL_TIME, causing a new interval to be created with an allocation based on the current totalTitanXBurn or totalETHBurn, and then immediately call swapTitanXForTorusAndBurn or swapETHForTorusAndBurn to consume that interval, violating the invariant that interval creation and consumption are separated by at least INTERVAL_TIME, causing scoped impact: attacker can atomically create and consume an interval in a single block, extracting the incentive without waiting? Local proof idea: fork-test, warp past INTERVAL_TIME, call distributeTitanXForBurning(1) then swapTitanXForTorusAndBurn in the same block, assert both succeed.",
+    "url": "https://deepwiki.com/search/-deepwiki-candidate-triage-pro_b590a1b0-dda5-4baa-8242-8bf38853a30b?mode=deep",
+    "timestamp": "2026-07-14 16:00:03.475997",
+    "report_generated": false
+  },
+  {
+    "question": "[File: 'src/contracts/src/TorusBuyAndProcess.sol -> Scope: Critical fund extraction or protocol value drain by an unprivileged attacker'] [Function: swapETHForTorusAndBuild / swapETHForTorusAndBurn / shared ETH balance invariant] Can an unprivileged attacker fuzz the sequence of distributeETHForBurning, distributeETHForBuilding, swapETHForTorusAndBurn, and swapETHForTorusAndBuild calls under arbitrary ordering and amounts, violating the invariant that address(this).balance >= totalETHBurn + totalETHForBuild + fractalETH at all times, causing scoped impact: if the invariant is violated, one of the swap functions will revert due to insufficient ETH, permanently locking the other pool's ETH? Local proof idea: invariant fuzz test (Foundry), generate random sequences of the four functions, assert address(this).balance >= totalETHBurn + totalETHForBuild + fractalETH after every call.",
+    "url": "https://deepwiki.com/search/-deepwiki-candidate-triage-pro_6bdfa90b-442e-4481-a741-2f67acf5f127?mode=deep",
+    "timestamp": "2026-07-14 16:00:16.340841",
+    "report_generated": false
+  },
+  {
+    "question": "[File: 'src/contracts/src/TorusBuyAndProcess.sol -> Scope: Critical fund extraction or protocol value drain by an unprivileged attacker'] [Function: distributeTitanXForBurning / swapTitanXForTorusAndBurn / TitanX balance invariant] Can an unprivileged attacker fuzz the sequence of distributeTitanXForBurning, distributeTitanXForBuilding, swapTitanXForTorusAndBurn, and swapTitanXForTorusAndBuild calls under arbitrary ordering and amounts, violating the invariant that titanX.balanceOf(address(this)) >= totalTitanXBurn + fractalTitanX + totalTitanXForBuild at all times, causing scoped impact: if the invariant is violated, a swap function will revert due to insufficient TitanX, permanently locking funds? Local proof idea: invariant fuzz test (Foundry), generate random sequences, assert titanX.balanceOf(contract) >= totalTitanXBurn + fractalTitanX + totalTitanXForBuild after every call.",
+    "url": "https://deepwiki.com/search/-deepwiki-candidate-triage-pro_81d21a7d-6f2f-4f74-bcf6-c0722e62b587?mode=deep",
+    "timestamp": "2026-07-14 16:00:29.036570",
+    "report_generated": false
+  },
+  {
+    "question": "[File: 'src/contracts/src/TorusBuyAndProcess.sol -> Scope: Critical fund extraction or protocol value drain by an unprivileged attacker'] [Function: releaseFractalFunds / totalTitanXBurn / totalETHBurn] Can an unprivileged attacker call releaseFractalFunds() under the precondition that fractalTitanX > 0 and fractalETH > 0 and block.timestamp >= lastFractalRelease + FRACTAL_RELEASE_INTERVAL, causing totalTitanXBurn += fractalTitanX and totalETHBurn += fractalETH and then fractalTitanX = 0 and fractalETH = 0, but the actual TitanX and ETH tokens are already held by the contract (not transferred), violating the invariant that totalTitanXBurn + fractalTitanX == actual TitanX held for burning, causing scoped impact: after release, totalTitanXBurn increases but no new TitanX arrives, so the next interval allocation is larger than the actual TitanX available, potentially causing a swap revert? Local proof idea: fork-test, call releaseFractalFunds(), assert titanX.balanceOf(contract) >= totalTitanXBurn + fractalTitanX (should be 0 after release).",
+    "url": "https://deepwiki.com/search/-deepwiki-candidate-triage-pro_dcef1105-019f-4d76-9619-b4daeaa697f2?mode=deep",
+    "timestamp": "2026-07-14 16:00:43.080866",
+    "report_generated": false
+  },
+  {
+    "question": "[File: 'src/contracts/src/TorusBuyAndProcess.sol -> Scope: Critical fund extraction or protocol value drain by an unprivileged attacker'] [Function: swapTitanXForTorusAndBurn / _swapTitanXForTorus / getTorusQuoteForTitanX / OracleLibrary] Can an unprivileged attacker exploit the TWAP fallback where oldestObservation < 900 seconds (15 minutes) causes secondsAgo to be reduced to oldestObservation, under the precondition that the TitanX/TORUS pool was recently initialized or has few observations, causing the TWAP to be based on a very short window (potentially 1 block), making it trivially manipulable, violating the invariant that the oracle provides manipulation-resistant price quotes, causing scoped impact: attacker manipulates the spot price in the same block as the swap, causing amountOutMinimum to be near-zero and the swap to execute at an arbitrarily bad price? Local proof idea: fork-test with a fresh pool (few observations), manipulate price in the same block, call swapTitanXForTorusAndBurn, assert Torus received << fair value.",
+    "url": "https://deepwiki.com/search/-deepwiki-candidate-triage-pro_d3182666-860f-431b-9546-893defb7a508?mode=deep",
+    "timestamp": "2026-07-14 16:00:57.362662",
+    "report_generated": false
+  },
+  {
+    "question": "[File: 'src/contracts/src/TorusBuyAndProcess.sol -> Scope: Critical fund extraction or protocol value drain by an unprivileged attacker'] [Function: swapETHForTorusAndBurn / _swapETHForTitanX / getTitanXQuoteForETH / OracleLibrary] Can an unprivileged attacker exploit the TWAP fallback for TITAN_X_ETH_POOL where oldestObservation < 900 seconds causes secondsAgo to be reduced, under the precondition that the ETH/TitanX pool has few recent observations, causing getTitanXQuoteForETH to return a manipulated quote, violating the invariant that ETH→TitanX swaps execute at fair market rates, causing scoped impact: protocol ETH is swapped for far fewer TitanX than fair value, with the attacker capturing the spread via a sandwich attack? Local proof idea: fork-test, check TITAN_X_ETH_POOL observation count, if low, manipulate price and call swapETHForTorusAndBurn, assert TitanX received << fair value.",
+    "url": "https://deepwiki.com/search/-deepwiki-candidate-triage-pro_719618f3-98e3-495f-a2bb-c57f3e02c92d?mode=deep",
+    "timestamp": "2026-07-14 16:01:12.656570",
+    "report_generated": false
+  },
+  {
+    "question": "[File: 'src/contracts/src/TorusBuyAndProcess.sol -> Scope: Critical fund extraction or protocol value drain by an unprivileged attacker'] [Function: swapTitanXForTorusAndBuild / _addLiquidityBuild / liquiditySlippage] Can an unprivileged attacker observe that _addLiquidityBuild uses liquiditySlippage (currently 10%) to compute amount0Min and amount1Min, and that liquiditySlippage can be up to 100 (set by owner), under the precondition that liquiditySlippage is at its maximum, causing amount0Min and amount1Min to be 0, allowing the POSITION_MANAGER.increaseLiquidity call to accept any price, violating the invariant that liquidity addition is protected against sandwich attacks, causing scoped impact: attacker sandwiches the liquidity addition to cause maximum slippage, with all unused tokens sent to genesisWallet instead of the LP? Local proof idea: fork-test with liquiditySlippage=100, sandwich swapTitanXForTorusAndBuild, assert genesisWallet received significant TitanX/Torus from leftover transfers.",
+    "url": "https://deepwiki.com/search/-deepwiki-candidate-triage-pro_12f9b468-4af7-4558-ba35-a63f1c2b96dd?mode=deep",
+    "timestamp": "2026-07-14 16:01:27.785513",
+    "report_generated": false
+  },
+  {
+    "question": "[File: 'src/contracts/src/TorusBuyAndProcess.sol -> Scope: Critical fund extraction or protocol value drain by an unprivileged attacker'] [Function: swapETHForTorusAndBuild / _swapETHForTitanX / ethToTitanXSlippage] Can an unprivileged attacker observe that _swapETHForTitanX uses ethToTitanXSlippage (currently 10%) to compute adjustedTitanXAmount, and that ethToTitanXSlippage can be up to 100 (set by owner), under the precondition that ethToTitanXSlippage is at its maximum, causing adjustedTitanXAmount to be 0, allowing the swap to execute at any price, violating the invariant that ETH→TitanX swaps are protected against sandwich attacks, causing scoped impact: attacker sandwiches swapETHForTorusAndBuild to drain protocol ETH at near-zero TitanX output? Local proof idea: fork-test with ethToTitanXSlippage=100, sandwich swapETHForTorusAndBuild, assert TitanX received << fair value.",
+    "url": "https://deepwiki.com/search/-deepwiki-candidate-triage-pro_fa98ddce-4f82-4aa3-adfd-ff83bf0d9d09?mode=deep",
+    "timestamp": "2026-07-14 16:01:41.520998",
+    "report_generated": false
+  },
+  {
+    "question": "[File: 'src/contracts/src/TorusBuyAndProcess.sol -> Scope: Critical fund extraction or protocol value drain by an unprivileged attacker'] [Function: swapTitanXForTorusAndBurn / _swapTitanXForTorus / titanXToTorusSlippage] Can an unprivileged attacker observe that _swapTitanXForTorus uses titanXToTorusSlippage (currently 10%) to compute adjustedTorusAmount, and that titanXToTorusSlippage can be up to 100 (set by owner), under the precondition that titanXToTorusSlippage is at its maximum, causing adjustedTorusAmount to be 0, allowing the swap to execute at any price, violating the invariant that TitanX→Torus swaps are protected against sandwich attacks, causing scoped impact: attacker sandwiches swapTitanXForTorusAndBurn to drain protocol TitanX at near-zero Torus output, with the attacker capturing the spread? Local proof idea: fork-test with titanXToTorusSlippage=100, sandwich swapTitanXForTorusAndBurn, assert Torus received << fair value.",
+    "url": "https://deepwiki.com/search/-deepwiki-candidate-triage-pro_7214fa8f-909c-42f0-af36-ad2904c91bc7?mode=deep",
+    "timestamp": "2026-07-14 16:01:55.763450",
+    "report_generated": false
+  },
+  {
+    "question": "[File: 'src/contracts/src/TorusBuyAndProcess.sol -> Scope: Critical fund extraction or protocol value drain by an unprivileged attacker'] [Function: swapETHForTorusAndBuild / totalETHForBuild / totalETHBuilt accounting] Can an unprivileged attacker observe that totalETHBuilt += ethToSwapAndBuild (line 914) and totalETHForBuild -= ethToSwapAndBuild + incentive (line 915), but ethUsedForBuilds += ethToSwapAndBuild (line 916), under the precondition that multiple build calls are made, causing totalETHBuilt and ethUsedForBuilds to track the same value (both equal to sum of ethToSwapAndBuild), violating the invariant that totalETHBuilt and ethUsedForBuilds are distinct accounting variables with different semantics, causing scoped impact: accounting redundancy means any downstream logic relying on the difference between these variables will be incorrect? Local proof idea: unit-test, call swapETHForTorusAndBuild N times, assert totalETHBuilt == ethUsedForBuilds after each call.",
+    "url": "https://deepwiki.com/search/-deepwiki-candidate-triage-pro_05a1a7f2-a3b6-426b-87af-1173bfb1506e?mode=deep",
+    "timestamp": "2026-07-14 16:02:10.871861",
+    "report_generated": false
+  },
+  {
+    "question": "[File: 'src/contracts/src/TorusBuyAndProcess.sol -> Scope: Critical fund extraction or protocol value drain by an unprivileged attacker'] [Function: swapTitanXForTorusAndBuild / totalTitanXBuilt / titanXUsedForBuilds accounting] Can an unprivileged attacker observe that totalTitanXBuilt += titanXToUse (line 960) and titanXUsedForBuilds += titanXToUse (line 962), under the precondition that multiple build calls are made, causing totalTitanXBuilt and titanXUsedForBuilds to always be equal, violating the invariant that these are distinct accounting variables, causing scoped impact: any downstream logic relying on the difference between totalTitanXBuilt and titanXUsedForBuilds will always see zero difference, making one of the variables redundant and potentially masking accounting errors? Local proof idea: unit-test, call swapTitanXForTorusAndBuild N times, assert totalTitanXBuilt == titanXUsedForBuilds after each call.",
+    "url": "https://deepwiki.com/search/-deepwiki-candidate-triage-pro_1dbcf741-db1d-421a-aa38-ad6ab2e14c30?mode=deep",
+    "timestamp": "2026-07-14 16:02:24.433561",
+    "report_generated": false
+  },
+  {
+    "question": "[File: 'src/contracts/src/TorusBuyAndProcess.sol -> Scope: Critical fund extraction or protocol value drain by an unprivileged attacker'] [Function: swapETHForTorusAndBurn / swapTitanXForTorusAndBurn / cross-flow interval replay] Can an unprivileged attacker call swapETHForTorusAndBurn and swapTitanXForTorusAndBurn in the same block under the precondition that both ETH and TitanX burn intervals have non-zero allocations, causing both functions to execute and pay incentives in the same transaction block, violating the invariant that burn incentives are rate-limited to one per INTERVAL_TIME per token type, causing scoped impact: attacker extracts incentives from both burn pools simultaneously in a single block, doubling the incentive extraction rate? Local proof idea: fork-test, call both swapETHForTorusAndBurn and swapTitanXForTorusAndBurn in the same block, assert both succeed and attacker receives incentives from both.",
+    "url": "https://deepwiki.com/search/-deepwiki-candidate-triage-pro_065cc9a1-9eaf-46c2-b507-33849cd77fd9?mode=deep",
+    "timestamp": "2026-07-14 16:02:37.698350",
+    "report_generated": false
+  },
+  {
+    "question": "[File: 'src/contracts/src/TorusBuyAndProcess.sol -> Scope: Critical fund extraction or protocol value drain by an unprivileged attacker'] [Function: swapETHForTorusAndBuild / swapTitanXForTorusAndBuild / cross-flow build interval replay] Can an unprivileged attacker call swapETHForTorusAndBuild and swapTitanXForTorusAndBuild in the same block under the precondition that both ETH and TitanX build intervals have non-zero allocations, causing both functions to execute and pay incentives in the same block, violating the invariant that build incentives are rate-limited to one per INTERVAL_TIME per token type, causing scoped impact: attacker extracts incentives from both build pools simultaneously, and also from both burn pools, extracting up to 4 incentive payments per INTERVAL_TIME? Local proof idea: fork-test, call all four swap functions in the same block, assert all succeed and attacker receives 4 separate incentive payments.",
+    "url": "https://deepwiki.com/search/-deepwiki-candidate-triage-pro_873a91c9-5c52-4ac1-b5f3-926764c14699?mode=deep",
+    "timestamp": "2026-07-14 16:02:50.698729",
+    "report_generated": false
+  },
+  {
+    "question": "[File: 'src/contracts/src/TorusBuyAndProcess.sol -> Scope: Critical fund extraction or protocol value drain by an unprivileged attacker'] [Function: _addLiquidityBuild / POSITION_MANAGER.increaseLiquidity / leftover transfer] Can an unprivileged attacker observe that _addLiquidityBuild sends leftover tokens (amount0 - used0 and amount1 - used1) to torusToken.genesisWallet() (lines 1010-1014), and that genesisWallet is a configurable address in Torus.sol (setGenesisWallet), under the precondition that genesisWallet is set to an attacker-controlled address (requires owner compromise) or that the attacker can cause large slippage, causing all leftover tokens from liquidity addition to flow to the attacker-controlled address, violating the invariant that leftover tokens from LP operations are returned to the protocol, causing scoped impact: protocol TitanX and Torus are drained to an attacker-controlled address via slippage-induced leftovers? Local proof idea: fork-test, set genesisWallet to attacker address (if owner), cause maximum slippage in _addLiquidityBuild, assert attacker receives TitanX and Torus.",
+    "url": "https://deepwiki.com/search/-deepwiki-candidate-triage-pro_b8ccc73a-49f2-4874-9bdb-c449ea5ccc7f?mode=deep",
+    "timestamp": "2026-07-14 16:03:04.578495",
+    "report_generated": false
+  }
+]
