@@ -1,0 +1,27 @@
+[
+  {
+    "question": "'File Name: src/contracts/src/Torus.sol -> Scope: Critical fund extraction or protocol value drain by an unprivileged attacker'",
+    "url": "https://deepwiki.com/search/-generate-fund-extraction-and_49dc9eca-7c5d-41dc-bf76-47ce2f48d221?mode=deep",
+    "questions_generated": false
+  },
+  {
+    "question": "'File Name: src/contracts/src/TorusBuyAndProcess.sol -> Scope: Critical fund extraction or protocol value drain by an unprivileged attacker'",
+    "url": "https://deepwiki.com/search/-generate-fund-extraction-and_d2676fa8-040e-43fc-b677-8eacee9d0b2c?mode=deep",
+    "questions_generated": false
+  },
+  {
+    "question": "'File Name: src/contracts/src/TorusCreateAndStake.sol -> Scope: Critical fund extraction or protocol value drain by an unprivileged attacker'",
+    "url": "https://deepwiki.com/search/-generate-fund-extraction-and_051a4f77-a40c-4a40-85f3-3ba683a2ded6?mode=deep",
+    "questions_generated": false
+  },
+  {
+    "question": "'File Name: src/contracts/src/const/BuyAndProcessConst.sol -> Scope: Critical fund extraction or protocol value drain by an unprivileged attacker'",
+    "url": "https://deepwiki.com/search/-generate-fund-extraction-and_9020a964-539e-4665-b71a-cd2afac5b2e5?mode=deep",
+    "questions_generated": false
+  },
+  {
+    "question": "'File Name: src/contracts/src/library/OracleLibrary.sol -> Scope: Critical fund extraction or protocol value drain by an unprivileged attacker'",
+    "url": "https://deepwiki.com/search/-generate-fund-extraction-and_4fbe86bf-2599-4c50-9daf-6a01647f50a0?mode=deep",
+    "questions_generated": false
+  }
+]
