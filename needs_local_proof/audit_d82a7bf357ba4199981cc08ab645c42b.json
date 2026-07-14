@@ -1,0 +1,141 @@
+{
+  "schema_version": "proof-gate-v1",
+  "verdict": "NEEDS_LOCAL_PROOF",
+  "gate_question": "Does this exact current protocol, with current live state, allow an unprivileged attacker to extract funds or rewards beyond entitlement?",
+  "paid_scope_match": "fund_extraction | reward_extraction",
+  "active_protocol": {
+    "blueprint_project": "Torus",
+    "source_repo": "Moishetat/Torus--002",
+    "live_context_protocol": "TorusBuyAndProcess",
+    "context_matches_blueprint": true,
+    "context_source": "setup/live_context.json"
+  },
+  "candidate": {
+    "source_file": "src/contracts/src/TorusBuyAndProcess.sol",
+    "title_or_claim": "ETH build interval accumulation cap enables full-pool incentive drain via swapETHForTorusAndBuild",
+    "claimed_root_cause": "When many intervals are missed, _calculateIntervalsETHBuild caps _totalAmountForInterval at totalETHForBuild, causing the 1.5% incentive to apply to the entire pool rather than a single interval allocation",
+    "claimed_impact": "Unprivileged attacker receives 1.5% of entire totalETHForBuild pool in one call after 30+ days of inactivity"
+  },
+  "hard_gates": {
+    "current_protocol_only": true,
+    "live_state_supports_preconditions": false,
+    "unprivileged_attacker": true,
+    "attacker_controls_trigger": true,
+    "exact_code_path_exists": true,
+    "concrete_fund_or_reward_gain": true,
+    "gain_is_beyond_entitlement": true,
+    "not_dos_grief_or_liveness_only": true,
+    "not_admin_governance_or_key_compromise": true,
+    "not_external_dependency_only": true,
+    "not_expected_behavior": true,
+    "not_known_duplicate": true
+  },
+  "live_preconditions": [
+    {
+      "name": "liquidityAddedBuild",
+      "required": true,
+      "observed_value": "true",
+      "source": "live_context field",
+      "command_if_missing": ""
+    },
+    {
+      "name": "totalETHForBuild > 0",
+      "required": true,
+      "observed_value": "106634700085918065",
+      "source": "live_context field",
+      "command_if_missing": ""
+    },
+    {
+      "name": "timeElapsed since lastETHBuildIntervalStartTimestamp >= 30 days",
+      "required": true,
+      "observed_value": "~10709 seconds (~18 minutes) elapsed at capture time 2026-07-14T09:58:29Z vs lastETHBuildIntervalStartTimestamp=1784012400",
+      "source": "live_context field: lastETHBuildIntervalStartTimestamp=1784012400, captured_at=2026-07-14T09:58:29Z",
+      "command_if_missing": "cast call <TorusBuyAndProcess> 'lastETHBuildIntervalStartTimestamp()(uint32)' --rpc-url mainnet"
+    },
+    {
+      "name": "DAILY_ALLOCATION_ETH_BUILDING = 1000 bps",
+      "required": true,
+      "observed_value": "1000",
+      "source": "live_context field",
+      "command_if_missing": ""
+    }
+  ],
+  "source_code_basis": [
+    {
+      "file": "src/contracts/src/TorusBuyAndProcess.sol",
+      "function": "_calculateIntervalsETHBuild",
+      "symbols_or_lines": "1080-1089",
+      "why_it_matters": "Computes amountPerInterval * (missedIntervals+1) and caps at totalETHForBuild; after 30+ days the cap triggers, setting _totalAmountForInterval = totalETHForBuild"
+    },
+    {
+      "file": "src/contracts/src/TorusBuyAndProcess.sol",
+      "function": "_intervalUpdateETHForBuilding",
+      "symbols_or_lines": "786-794",
+      "why_it_matters": "Writes amountAllocated = _totalAmountForInterval (potentially totalETHForBuild) into ethIntervalsBuild[_lastInterval]"
+    },
+    {
+      "file": "src/contracts/src/TorusBuyAndProcess.sol",
+      "function": "swapETHForTorusAndBuild",
+      "symbols_or_lines": "905-933",
+      "why_it_matters": "IntervalAlreadyUsed guard only checks amountBurned != 0; incentive = currInterval.amountAllocated * 150 / 10000 sent to msg.sender; if amountAllocated == totalETHForBuild, attacker receives 1.5% of entire pool"
+    },
+    {
+      "file": "src/contracts/src/const/BuyAndProcessConst.sol",
+      "function": "constants",
+      "symbols_or_lines": "4-5, 32-36",
+      "why_it_matters": "INCENTIVE_FEE_BUILD=150, BPS_DENOM=10000, INTERVALS_PER_DAY=144, INTERVAL_TIME=10 minutes confirm arithmetic in the report"
+    }
+  ],
+  "attacker_path": {
+    "actor": "any unprivileged EOA",
+    "attacker_inputs": [
+      "_deadline: any valid future uint32 timestamp"
+    ],
+    "call_sequence": [
+      "Wait until block.timestamp - lastETHBuildIntervalStartTimestamp >= 30 days (currently ~30 days away from live state)",
+      "Call swapETHForTorusAndBuild(_deadline)"
+    ],
+    "state_before": [
+      "liquidityAddedBuild = true",
+      "totalETHForBuild = 106634700085918065 wei",
+      "lastETHBuildIntervalStartTimestamp = 1784012400",
+      "lastETHBuildIntervalNumber = 53070",
+      "ethIntervalsBuild[53070].amountBurned = 0 (assumed, interval not yet consumed)"
+    ],
+    "state_after": [
+      "ethIntervalsBuild[newInterval].amountAllocated = totalETHForBuild (capped)",
+      "ethIntervalsBuild[newInterval].amountBurned = totalETHForBuild",
+      "attacker receives totalETHForBuild * 150 / 10000 wei ETH",
+      "totalETHForBuild reduced to ~0"
+    ]
+  },
+  "extraction_analysis": {
+    "asset_or_reward": "Native ETH from totalETHForBuild pool",
+    "attacker_gain": "totalETHForBuild * 150 / 10000 = ~1,599,520,501,288,770 wei (~0.0016 ETH at current pool size; scales with pool growth)",
+    "victim_or_protocol_loss": "Protocol loses 1.5% of entire ETH build pool in one call instead of 1.5% of a single interval allocation (~0.069% of pool)",
+    "why_gain_exceeds_entitlement": "Design intent is per-interval incentive of amountPerInterval * 150 / 10000 (~0.001% of pool per call). Cap collapses all missed intervals into one allocation equal to totalETHForBuild, making the incentive 1.5% of the entire pool. Attacker is entitled to incentive on one interval's worth of ETH, not the entire pool balance."
+  },
+  "local_proof_required": {
+    "test_type": "fork",
+    "test_file_to_add": "src/contracts/test/ETHBuildIntervalAccumulationExploit.t.sol",
+    "setup": [
+      "Fork mainnet at block 25530134",
+      "Identify deployed TorusBuyAndProcess address",
+      "Record attacker EOA with no special privileges",
+      "Read totalETHForBuild before call",
+      "vm.warp(block.timestamp + 31 days) to satisfy 30-day gap precondition"
+    ],
+    "transaction_sequence": [
+      "vm.prank(attacker); torusBuyAndProcess.swapETHForTorusAndBuild(uint32(block.timestamp + 300))"
+    ],
+    "expected_assertions": [
+      "uint256 expectedIncentive = totalETHForBuildBefore * 150 / 10000",
+      "assertApproxEqAbs(attacker.balance - balBefore, expectedIncentive, 1e9)",
+      "assertEq(torusBuyAndProcess.totalETHForBuild(), 0) // full pool drained"
+    ],
+    "reject_if_assertion_fails": "If attacker receives only a single interval's incentive (~totalETHForBuild / 1440 * 150 / 10000) rather than 1.5% of the full pool, the cap does not trigger as described and the finding does not hold"
+  },
+  "rejection_reason": "Not rejected. Downgraded from HIGH_CONFIDENCE_CANDIDATE to NEEDS_LOCAL_PROOF because: (1) the critical precondition of 30+ days elapsed since lastETHBuildIntervalStartTimestamp is NOT currently met \u2014 live state shows only ~18 minutes elapsed at capture time, so the exploit requires waiting ~30 days from the capture block; (2) current extractable value is small (~0.0016 ETH) though it scales with pool deposits; (3) a pinned-fork test with vm.warp is required to confirm the cap triggers and the incentive equals 1.5% of the full pool rather than a single interval. The code path and arithmetic are confirmed correct in source; the finding is plausible and warrants local proof.",
+  "deepwiki_source_url": "https://deepwiki.com/search/-deepwiki-exact-proof-gate-can_68b1f457-9244-4176-ae80-6ad1e489be1e?mode=deep",
+  "deepwiki_verdict": "needs_local_proof"
+}

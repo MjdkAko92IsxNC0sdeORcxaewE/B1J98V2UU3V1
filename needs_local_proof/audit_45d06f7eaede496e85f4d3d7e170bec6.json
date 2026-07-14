@@ -1,0 +1,156 @@
+{
+  "schema_version": "proof-gate-v1",
+  "verdict": "NEEDS_LOCAL_PROOF",
+  "gate_question": "Does this exact current protocol, with current live state, allow an unprivileged attacker to extract funds or rewards beyond entitlement?",
+  "paid_scope_match": "fund_extraction | protocol_value_drain",
+  "active_protocol": {
+    "blueprint_project": "Torus",
+    "source_repo": "Matchatat/Torus--001",
+    "live_context_protocol": "TorusBuyAndProcess",
+    "context_matches_blueprint": true,
+    "context_source": "setup/live_context.json"
+  },
+  "candidate": {
+    "source_file": "src/contracts/src/TorusBuyAndProcess.sol",
+    "title_or_claim": "Incentive accumulation drain via missed-interval cap in swapTitanXForTorusAndBurn",
+    "claimed_root_cause": "_calculateIntervalsTitanXBurn caps amountAllocated at totalTitanXBurn after ~50 days of inactivity; incentive is 1.5% of amountAllocated with no per-call ceiling",
+    "claimed_impact": "Attacker extracts ~5.85e27 TitanX (1.5% of totalTitanXBurn ~390e27) in a single call after ~50 days of inactivity"
+  },
+  "hard_gates": {
+    "current_protocol_only": true,
+    "live_state_supports_preconditions": true,
+    "unprivileged_attacker": true,
+    "attacker_controls_trigger": true,
+    "exact_code_path_exists": true,
+    "concrete_fund_or_reward_gain": true,
+    "gain_is_beyond_entitlement": true,
+    "not_dos_grief_or_liveness_only": true,
+    "not_admin_governance_or_key_compromise": true,
+    "not_external_dependency_only": true,
+    "not_expected_behavior": true,
+    "not_known_duplicate": true
+  },
+  "live_preconditions": [
+    {
+      "name": "liquidityAdded",
+      "required": true,
+      "observed_value": "true",
+      "source": "live_context field",
+      "command_if_missing": ""
+    },
+    {
+      "name": "totalTitanXBurn",
+      "required": true,
+      "observed_value": "390047518149437255354831991687",
+      "source": "live_context field",
+      "command_if_missing": ""
+    },
+    {
+      "name": "DAILY_ALLOCATION_TITAN_X_BURNING",
+      "required": true,
+      "observed_value": "200",
+      "source": "live_context field",
+      "command_if_missing": ""
+    },
+    {
+      "name": "titanXToTorusSlippage",
+      "required": true,
+      "observed_value": "10",
+      "source": "live_context field",
+      "command_if_missing": ""
+    },
+    {
+      "name": "lastTitanXBurnIntervalNumber and lastBurnedTitanXIntervalStartTimestamp (inactivity >= 50 days)",
+      "required": true,
+      "observed_value": "lastBurnedTitanXIntervalStartTimestamp=1784022600; requires warp to block.timestamp + 51 days in fork test",
+      "source": "live_context field",
+      "command_if_missing": "cast call <contract> 'lastBurnedTitanXIntervalStartTimestamp()(uint32)' --rpc-url mainnet"
+    },
+    {
+      "name": "TitanX ERC20 balance of contract >= totalTitanXBurn",
+      "required": true,
+      "observed_value": "not directly in live_context; must be verified",
+      "source": "missing",
+      "command_if_missing": "cast call 0xF19308F923582A6f7c465e5CE7a9Dc1BEC6665B1 'balanceOf(address)(uint256)' <contract_address> --rpc-url mainnet"
+    }
+  ],
+  "source_code_basis": [
+    {
+      "file": "src/contracts/src/TorusBuyAndProcess.sol",
+      "function": "_calculateIntervalsTitanXBurn",
+      "symbols_or_lines": "591-600",
+      "why_it_matters": "Accumulates missed intervals linearly and caps _totalAmountForInterval at totalTitanXBurn; after ~7199 missed 10-minute intervals (~50 days), the full pool is allocated to a single interval"
+    },
+    {
+      "file": "src/contracts/src/TorusBuyAndProcess.sol",
+      "function": "swapTitanXForTorusAndBurn",
+      "symbols_or_lines": "236-237, 254",
+      "why_it_matters": "Incentive = amountAllocated * 150 / 10000 with no per-call ceiling; transferred to msg.sender after swap"
+    },
+    {
+      "file": "src/contracts/src/TorusBuyAndProcess.sol",
+      "function": "_swapTitanXForTorus",
+      "symbols_or_lines": "821-839",
+      "why_it_matters": "CRITICAL BLOCKER: amountOutMinimum = getTorusQuoteForTitanX(amountTitanX) * (100 - titanXToTorusSlippage) / 100; for a swap of ~384e27 TitanX the TWAP-based minimum output will far exceed actual pool output due to price impact, likely causing the swap to revert and preventing incentive transfer"
+    },
+    {
+      "file": "src/contracts/src/const/BuyAndProcessConst.sol",
+      "function": "constants",
+      "symbols_or_lines": "4, 32, 35-36",
+      "why_it_matters": "INCENTIVE_FEE=150, BPS_DENOM=10000, INTERVALS_PER_DAY=144, INTERVAL_TIME=10 minutes; all confirmed in source"
+    }
+  ],
+  "attacker_path": {
+    "actor": "any unprivileged EOA",
+    "attacker_inputs": [
+      "_deadline: any valid future uint32 timestamp"
+    ],
+    "call_sequence": [
+      "1. Wait >= 50 days without any swapTitanXForTorusAndBurn call (missedIntervals >= 7199)",
+      "2. Call swapTitanXForTorusAndBurn(_deadline)",
+      "3. burnTitanXIntervalUpdate modifier triggers _intervalUpdateTitanXForBurning() -> _calculateIntervalsTitanXBurn()",
+      "4. amountPerInterval = 390e27 * 200 / 10000 / 144 ~= 5.42e25; additionalAmount = 5.42e25 * 7199 ~= 3.90e29; cap triggers: amountAllocated = totalTitanXBurn = 390e27",
+      "5. incentive = 390e27 * 150 / 10000 ~= 5.85e27 TitanX",
+      "6. titanXToSwapAndBurn = 390e27 - 5.85e27 ~= 384e27 TitanX sent to _swapTitanXForTorus",
+      "7. IF swap succeeds: TransferHelper.safeTransfer(TITAN_X_ADDRESS, msg.sender, incentive)"
+    ],
+    "state_before": [
+      "totalTitanXBurn = 390047518149437255354831991687",
+      "liquidityAdded = true",
+      "DAILY_ALLOCATION_TITAN_X_BURNING = 200",
+      "titanXToTorusSlippage = 10"
+    ],
+    "state_after": [
+      "attacker receives ~5.85e27 TitanX IF swap does not revert",
+      "totalTitanXBurn -= 390e27 (entire pool consumed)",
+      "totalTorusBurnt += torusAmount from swap"
+    ]
+  },
+  "extraction_analysis": {
+    "asset_or_reward": "TitanX ERC20 token",
+    "attacker_gain": "~5.85e27 TitanX (1.5% of entire totalTitanXBurn pool) in a single call",
+    "victim_or_protocol_loss": "Protocol burn pool loses 1.5% of totalTitanXBurn to a single caller instead of distributing it across ~7200 separate interval incentives",
+    "why_gain_exceeds_entitlement": "The incentive mechanism is designed to compensate a single caller for gas on one 10-minute interval; the normal per-interval incentive is 1.5% of ~5.42e25 TitanX (~8.1e23 TitanX). The cap mechanism allows a single caller to claim 1.5% of the entire pool (~5.85e27 TitanX), which is ~7200x the intended single-interval entitlement"
+  },
+  "local_proof_required": {
+    "test_type": "fork",
+    "test_file_to_add": "test/IncentiveAccumulationDrain.t.sol",
+    "setup": [
+      "Fork mainnet at block 25530134",
+      "Verify contract TitanX balance >= totalTitanXBurn via cast call",
+      "vm.warp(block.timestamp + 51 days) to accumulate >= 7199 missed intervals",
+      "Record attacker TitanX balance before call"
+    ],
+    "transaction_sequence": [
+      "vm.prank(attacker); contract.swapTitanXForTorusAndBurn(uint32(block.timestamp + 300));"
+    ],
+    "expected_assertions": [
+      "PASS condition: titanX.balanceOf(attacker) == (totalTitanXBurn * 150) / 10000 (~5.85e27)",
+      "FAIL condition (likely): swap reverts with 'Too little received' because _swapTitanXForTorus sets amountOutMinimum = getTorusQuoteForTitanX(~384e27) * 90 / 100, and actual Uniswap V3 output for a ~384e27 TitanX swap will be far below the TWAP-based minimum due to price impact, causing the entire transaction to revert before incentive transfer"
+    ],
+    "reject_if_assertion_fails": "If the swap reverts (expected for a pool-sized input), the incentive is never transferred and the finding does not constitute extractable value; downgrade to REJECT. If the swap somehow succeeds (e.g., pool has sufficient concentrated liquidity at block 25530134), promote to HIGH_CONFIDENCE_CANDIDATE."
+  },
+  "rejection_reason": "The code path and accumulation math are confirmed correct in source. However, the incentive transfer at line 254 is gated behind a successful Uniswap V3 exactInput swap of ~384e27 TitanX (line 240-243). The _swapTitanXForTorus function (lines 821-839) computes amountOutMinimum as 90% of the TWAP oracle quote for that full input amount. For a swap input equal to the entire remaining burn pool, price impact in the Uniswap V3 TitanX/Torus pool will almost certainly cause actual output to fall far below the TWAP-based minimum, reverting the transaction before any incentive is paid. The report does not address this swap-revert blocker. A pinned-block fork test is required to determine whether the pool has sufficient liquidity to absorb the swap and whether the transaction actually completes.",
+  "deepwiki_source_url": "https://deepwiki.com/search/-deepwiki-exact-proof-gate-can_9554b5ce-693a-40dc-8148-13b21a60ccba?mode=deep",
+  "deepwiki_verdict": "needs_local_proof"
+}

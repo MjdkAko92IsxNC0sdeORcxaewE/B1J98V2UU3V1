@@ -1,0 +1,167 @@
+{
+  "schema_version": "proof-gate-v1",
+  "verdict": "NEEDS_LOCAL_PROOF",
+  "gate_question": "Does this exact current protocol, with current live state, allow an unprivileged attacker to extract funds or rewards beyond entitlement?",
+  "paid_scope_match": "protocol_value_drain",
+  "active_protocol": {
+    "blueprint_project": "Torus",
+    "source_repo": "Moishetat/Torus--002",
+    "live_context_protocol": "TorusBuyAndProcess",
+    "context_matches_blueprint": true,
+    "context_source": "setup/live_context.json"
+  },
+  "candidate": {
+    "source_file": "src/contracts/src/TorusBuyAndProcess.sol",
+    "title_or_claim": "TWAP manipulation via oldestObservation fallback and fixed 10% slippage allows attacker to drain protocol value during swapTitanXForTorusAndBurn",
+    "claimed_root_cause": "getTorusQuoteForTitanX uses a TWAP with an oldestObservation fallback that collapses the window on low-cardinality pools; _swapTitanXForTorus sets amountOutMinimum at only 90% of the (potentially manipulated) TWAP quote; swapTitanXForTorusAndBurn is permissionless, letting the attacker time the protocol swap after manipulating the TWAP.",
+    "claimed_impact": "Attacker pre-sells TORUS at fair value to depress pool price, waits for TWAP to reflect manipulated price, triggers protocol swap at deflated amountOutMinimum, then buys TORUS back cheaply \u2014 capturing the spread at the protocol's expense."
+  },
+  "hard_gates": {
+    "current_protocol_only": true,
+    "live_state_supports_preconditions": true,
+    "unprivileged_attacker": true,
+    "attacker_controls_trigger": true,
+    "exact_code_path_exists": true,
+    "concrete_fund_or_reward_gain": true,
+    "gain_is_beyond_entitlement": true,
+    "not_dos_grief_or_liveness_only": true,
+    "not_admin_governance_or_key_compromise": true,
+    "not_external_dependency_only": true,
+    "not_expected_behavior": true,
+    "not_known_duplicate": true
+  },
+  "live_preconditions": [
+    {
+      "name": "liquidityAdded",
+      "required": true,
+      "observed_value": "true",
+      "source": "live_context field common_views.liquidityAdded",
+      "command_if_missing": ""
+    },
+    {
+      "name": "active titanX burn interval with non-zero amountAllocated",
+      "required": true,
+      "observed_value": "lastTitanXBurnIntervalNumber=53087; totalTitanXBurn=390047518149437255354831991687 (non-zero pool); interval amountAllocated not directly captured but pool is active",
+      "source": "live_context field common_views.lastTitanXBurnIntervalNumber + common_views.totalTitanXBurn",
+      "command_if_missing": "cast call <contract> 'titanXIntervalsBurn(uint32)' 53087"
+    },
+    {
+      "name": "TitanX/TORUS pool observation cardinality (oldestObservation)",
+      "required": true,
+      "observed_value": "not captured in live_context; pool address derived from torusToken.titanXTorusPool()",
+      "source": "missing",
+      "command_if_missing": "cast call <torusToken=0xb47f575807fc5466285e1277ef8acfbb5c6686e8> 'titanXTorusPool()(address)' && cast call <poolAddress> 'slot0()(uint160,int24,uint16,uint16,uint16,uint8,bool)'"
+    },
+    {
+      "name": "TitanX/TORUS pool liquidity depth (to assess manipulation cost)",
+      "required": true,
+      "observed_value": "not captured in live_context",
+      "source": "missing",
+      "command_if_missing": "cast call <poolAddress> 'liquidity()(uint128)'"
+    },
+    {
+      "name": "titanXToTorusSlippage",
+      "required": true,
+      "observed_value": "10",
+      "source": "live_context field common_views.titanXToTorusSlippage",
+      "command_if_missing": ""
+    }
+  ],
+  "source_code_basis": [
+    {
+      "file": "src/contracts/src/TorusBuyAndProcess.sol",
+      "function": "getTorusQuoteForTitanX",
+      "symbols_or_lines": "L1120-1140",
+      "why_it_matters": "TWAP oracle read with oldestObservation fallback: if oldestObservation < 900, secondsAgo is reduced to oldestObservation, collapsing the TWAP window toward spot and making it trivially manipulable."
+    },
+    {
+      "file": "src/contracts/src/TorusBuyAndProcess.sol",
+      "function": "_swapTitanXForTorus",
+      "symbols_or_lines": "L821-840",
+      "why_it_matters": "amountOutMinimum is set to expectedTorusAmount * (100 - titanXToTorusSlippage) / 100 = 90% of the TWAP quote. If TWAP is manipulated below fair value, the floor is proportionally lower and the swap succeeds with far fewer TORUS received."
+    },
+    {
+      "file": "src/contracts/src/TorusBuyAndProcess.sol",
+      "function": "swapTitanXForTorusAndBurn",
+      "symbols_or_lines": "L226-257",
+      "why_it_matters": "External, permissionless (no caller restriction beyond nonReentrant and burnTitanXIntervalUpdate). Attacker controls the timing of the protocol swap relative to their TWAP manipulation window."
+    },
+    {
+      "file": "src/contracts/src/TorusBuyAndProcess.sol",
+      "function": "swapTitanXForTorusAndBurn",
+      "symbols_or_lines": "L101",
+      "why_it_matters": "titanXToTorusSlippage = 10 (10%). A TWAP depressed by more than 10% passes the amountOutMinimum check while delivering materially fewer TORUS than fair value."
+    },
+    {
+      "file": "src/contracts/src/const/BuyAndProcessConst.sol",
+      "function": "N/A",
+      "symbols_or_lines": "L50-51",
+      "why_it_matters": "INITIAL_TITAN_X_FOR_LIQ = 200_000_000_000e18 and INITIAL_LP_MINT = 20_000e18 set the initial pool ratio; TORUS side is thin relative to TitanX, increasing susceptibility to price impact on the TORUS side."
+    }
+  ],
+  "attacker_path": {
+    "actor": "any unprivileged EOA or contract with sufficient TitanX and TORUS capital (or flash-loan access)",
+    "attacker_inputs": [
+      "Size of TORUS \u2192 TitanX swap to depress pool price",
+      "Duration to hold manipulated price (up to secondsAgo = min(oldestObservation, 900))",
+      "_deadline parameter passed to swapTitanXForTorusAndBurn"
+    ],
+    "call_sequence": [
+      "1. Attacker acquires TORUS (spot purchase or flash-loan from pool).",
+      "2. Attacker executes large TORUS \u2192 TitanX swap on the TitanX/TORUS Uniswap V3 pool, depressing the TORUS spot price.",
+      "3. Attacker waits secondsAgo seconds (up to 900s) for the TWAP accumulator to reflect the depressed price.",
+      "4. Attacker calls swapTitanXForTorusAndBurn(_deadline).",
+      "5. Inside _swapTitanXForTorus, getTorusQuoteForTitanX reads the manipulated TWAP \u2192 returns deflated expectedTorusAmount.",
+      "6. amountOutMinimum = deflated_quote * 90 / 100 \u2014 a very low floor.",
+      "7. Uniswap router executes the swap at the still-depressed spot price; protocol receives far fewer TORUS than fair value. Swap passes amountOutMinimum check.",
+      "8. Attacker reverses position: buys TORUS back at the depressed price (protocol swap pushes price back up), capturing the spread."
+    ],
+    "state_before": [
+      "liquidityAdded = true",
+      "titanXIntervalsBurn[lastTitanXBurnIntervalNumber].amountBurned == 0 (interval not yet consumed)",
+      "titanXIntervalsBurn[lastTitanXBurnIntervalNumber].amountAllocated > 0",
+      "Pool TWAP reflects fair price"
+    ],
+    "state_after": [
+      "titanXIntervalsBurn[lastTitanXBurnIntervalNumber].amountBurned == amountAllocated (interval consumed)",
+      "Protocol received fewer TORUS than fair value; fewer TORUS burned",
+      "Attacker net positive: sold TORUS at fair price, bought back at depressed price"
+    ]
+  },
+  "extraction_analysis": {
+    "asset_or_reward": "TORUS tokens (protocol burn value) and TitanX (attacker's price-manipulation spread)",
+    "attacker_gain": "Price spread between fair TORUS value and depressed TORUS price at time of protocol swap; attacker buys back TORUS cheaper than they sold it.",
+    "victim_or_protocol_loss": "Protocol burns fewer TORUS per TitanX interval than fair market value; the deficit in burned TORUS represents permanent protocol value drain (reduced deflationary pressure).",
+    "why_gain_exceeds_entitlement": "The attacker is entitled to the 1.5% INCENTIVE_FEE for calling the function (by design), but not to the additional spread captured by manipulating the TWAP oracle that sets the swap's minimum output floor."
+  },
+  "local_proof_required": {
+    "test_type": "fork",
+    "test_file_to_add": "src/contracts/test/TWAPManipulationBurn.t.sol",
+    "setup": [
+      "Fork Ethereum mainnet at a recent block where liquidityAdded = true (confirmed in live context).",
+      "Resolve pool address: call torusToken.titanXTorusPool() on 0xb47f575807fc5466285e1277ef8acfbb5c6686e8.",
+      "Read pool observation cardinality and oldestObservation via OracleLibrary.getOldestObservationSecondsAgo(poolAddress).",
+      "Ensure titanXIntervalsBurn[lastTitanXBurnIntervalNumber].amountAllocated > 0 and amountBurned == 0; if not, call distributeTitanXForBurning to seed a new interval.",
+      "Deal attacker a large TORUS balance (or use vm.prank + flash-loan simulation).",
+      "Record fairQuote = getTorusQuoteForTitanX(amountAllocated) before manipulation."
+    ],
+    "transaction_sequence": [
+      "1. Attacker executes large TORUS \u2192 TitanX exactInputSingle on the pool to depress spot price.",
+      "2. vm.warp(block.timestamp + secondsAgo) where secondsAgo = min(oldestObservation, 900).",
+      "3. Record manipulatedQuote = getTorusQuoteForTitanX(amountAllocated).",
+      "4. vm.prank(attacker); contract.swapTitanXForTorusAndBurn(uint32(block.timestamp + 300)).",
+      "5. Record torusReceived from BuyAndBurn event.",
+      "6. Attacker executes TitanX \u2192 TORUS swap to buy back TORUS at depressed price.",
+      "7. Compute attackerProfit = (torusReceivedFromBuyback * fairPrice) - (torusSold * fairPrice) - gasCost."
+    ],
+    "expected_assertions": [
+      "assertLt(manipulatedQuote, fairQuote * 90 / 100, 'TWAP not sufficiently manipulated');",
+      "assertLt(torusReceived, fairQuote * 90 / 100, 'protocol got less than 90% of fair value');",
+      "assertGt(attackerProfit, 0, 'attacker net positive after gas');"
+    ],
+    "reject_if_assertion_fails": "If torusReceived >= fairQuote * 90 / 100 or attackerProfit <= 0, the pool has sufficient liquidity depth or observation cardinality to make the attack unprofitable under current live conditions; downgrade to REJECT or low severity informational."
+  },
+  "rejection_reason": "",
+  "deepwiki_source_url": "https://deepwiki.com/search/-deepwiki-exact-proof-gate-can_8d0acbdc-52c8-4299-a95f-549f60eae67d?mode=deep",
+  "deepwiki_verdict": "needs_local_proof"
+}

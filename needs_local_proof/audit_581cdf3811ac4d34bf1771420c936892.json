@@ -1,0 +1,162 @@
+{
+  "schema_version": "proof-gate-v1",
+  "verdict": "NEEDS_LOCAL_PROOF",
+  "gate_question": "Does this exact current protocol, with current live state, allow an unprivileged attacker to extract funds or rewards beyond entitlement?",
+  "paid_scope_match": "fund_extraction",
+  "active_protocol": {
+    "blueprint_project": "Torus",
+    "source_repo": "Matchatat/Torus--001",
+    "live_context_protocol": "TorusBuyAndProcess",
+    "context_matches_blueprint": true,
+    "context_source": "setup/live_context.json"
+  },
+  "candidate": {
+    "source_file": "src/contracts/src/TorusBuyAndProcess.sol",
+    "title_or_claim": "TWAP window collapse via low observation cardinality enables sandwich attack on swapTitanXForTorusAndBuild",
+    "claimed_root_cause": "getTorusQuoteForTitanX falls back to oldestObservation when it is less than 900s; with pool cardinality=1 and a recent attacker-controlled swap, oldestObservation collapses to ~12s, making amountOutMinimum near-zero",
+    "claimed_impact": "Attacker sandwiches the protocol TitanX swap, extracting up to ~91% of the fair Torus value from protocol-owned TitanX funds"
+  },
+  "hard_gates": {
+    "current_protocol_only": true,
+    "live_state_supports_preconditions": false,
+    "unprivileged_attacker": true,
+    "attacker_controls_trigger": true,
+    "exact_code_path_exists": true,
+    "concrete_fund_or_reward_gain": true,
+    "gain_is_beyond_entitlement": true,
+    "not_dos_grief_or_liveness_only": true,
+    "not_admin_governance_or_key_compromise": true,
+    "not_external_dependency_only": true,
+    "not_expected_behavior": true,
+    "not_known_duplicate": true
+  },
+  "live_preconditions": [
+    {
+      "name": "liquidityAddedBuild",
+      "required": true,
+      "observed_value": "true",
+      "source": "live_context field: common_views.liquidityAddedBuild",
+      "command_if_missing": ""
+    },
+    {
+      "name": "totalTitanXForBuild > 0",
+      "required": true,
+      "observed_value": "5191597325509844865659654507",
+      "source": "live_context field: common_views.totalTitanXForBuild",
+      "command_if_missing": ""
+    },
+    {
+      "name": "titanXToTorusSlippage",
+      "required": true,
+      "observed_value": "10",
+      "source": "live_context field: common_views.titanXToTorusSlippage",
+      "command_if_missing": ""
+    },
+    {
+      "name": "TORUS/TITANX pool observationCardinality == 1",
+      "required": true,
+      "observed_value": "not present in live_context",
+      "source": "missing",
+      "command_if_missing": "cast call $(cast call 0xb47f575807fc5466285e1277ef8acfbb5c6686e8 'titanXTorusPool()(address)') 'slot0()(uint160,int24,uint16,uint16,uint16,uint8,bool)' --rpc-url $ETH_RPC_URL | awk '{print $4}'"
+    },
+    {
+      "name": "TORUS/TITANX pool oldestObservationSecondsAgo < 900 after attacker manipulation",
+      "required": true,
+      "observed_value": "not present in live_context",
+      "source": "missing",
+      "command_if_missing": "cast call $(cast call 0xb47f575807fc5466285e1277ef8acfbb5c6686e8 'titanXTorusPool()(address)') 'observations(uint256)(uint32,int56,uint160,bool)' 0 --rpc-url $ETH_RPC_URL"
+    }
+  ],
+  "source_code_basis": [
+    {
+      "file": "src/contracts/src/TorusBuyAndProcess.sol",
+      "function": "getTorusQuoteForTitanX",
+      "symbols_or_lines": "1124-1128",
+      "why_it_matters": "TWAP target is 900s but falls back to oldestObservation unconditionally; if oldestObservation < 900 the window collapses, making the quote manipulable"
+    },
+    {
+      "file": "src/contracts/src/TorusBuyAndProcess.sol",
+      "function": "_swapTitanXForTorus",
+      "symbols_or_lines": "828-837",
+      "why_it_matters": "amountOutMinimum is derived solely from the TWAP quote with 10% slippage; if quote is manipulated near-zero, amountOutMinimum is near-zero and the swap executes with no effective protection"
+    },
+    {
+      "file": "src/contracts/src/TorusBuyAndProcess.sol",
+      "function": "swapTitanXForTorusAndBuild",
+      "symbols_or_lines": "942-976",
+      "why_it_matters": "External, unprivileged, nonReentrant entry point that calls _swapTitanXForTorus with protocol-owned TitanX; attacker can call this after manipulating the pool"
+    },
+    {
+      "file": "src/contracts/src/library/OracleLibrary.sol",
+      "function": "getOldestObservationSecondsAgo",
+      "symbols_or_lines": "116-141",
+      "why_it_matters": "Returns block.timestamp minus the oldest stored observation timestamp; with cardinality=1 this equals time since last swap, which the attacker controls by being the last trader"
+    },
+    {
+      "file": "src/contracts/src/library/OracleLibrary.sol",
+      "function": "consult",
+      "symbols_or_lines": "80",
+      "why_it_matters": "Only guard is require(secondsAgo != 0); attacker ensures oldestObservation >= 12 (one block) so this does not revert"
+    }
+  ],
+  "attacker_path": {
+    "actor": "unprivileged EOA with sufficient TitanX to move the TORUS/TITANX pool tick significantly",
+    "attacker_inputs": [
+      "Block N: large swap in TORUS/TITANX pool (Torus -> TitanX direction) to push tick to very low Torus price, writing a new observation at block.timestamp(N)",
+      "Block N+1: call swapTitanXForTorusAndBuild(deadline) as the triggering transaction; MEV back-run restores pool price"
+    ],
+    "call_sequence": [
+      "Block N: attacker -> IUniswapV3Pool(titanXTorusPool).swap(...) \u2014 manipulates tick, writes observation timestamp T_N",
+      "Block N+1: attacker -> TorusBuyAndProcess.swapTitanXForTorusAndBuild(deadline)",
+      "  -> getTorusQuoteForTitanX(half): getOldestObservationSecondsAgo returns ~12, secondsAgo = min(900,12) = 12, quote is near-zero",
+      "  -> _swapTitanXForTorus(half, deadline): amountOutMinimum = near_zero * 0.9 \u2248 0",
+      "  -> ISwapRouter.exactInput executes at manipulated price with no effective floor",
+      "Block N+1 (back-run): attacker -> IUniswapV3Pool.swap(...) \u2014 restores price, captures price impact profit"
+    ],
+    "state_before": [
+      "liquidityAddedBuild = true",
+      "totalTitanXForBuild = 5191597325509844865659654507",
+      "titanXToTorusSlippage = 10",
+      "pool observationCardinality = 1 (assumed; must be verified)",
+      "pool last observation timestamp = T_N (attacker-controlled)"
+    ],
+    "state_after": [
+      "protocol receives fewer Torus than fair market value for the swapped TitanX half",
+      "attacker captures price impact delta as MEV profit",
+      "attacker receives legitimate INCENTIVE_FEE_BUILD incentive for calling the function"
+    ]
+  },
+  "extraction_analysis": {
+    "asset_or_reward": "Protocol-owned TitanX (from totalTitanXForBuild = 5191597325509844865659654507) swapped at manipulated price",
+    "attacker_gain": "MEV sandwich profit equal to the price impact of the manipulated swap; up to ~91% of fair Torus value if 10x price manipulation is achieved (fair_value * 0.1 * 0.9 = 9% of fair value returned to protocol)",
+    "victim_or_protocol_loss": "Protocol receives far fewer Torus tokens than fair market rate for the TitanX spent; the shortfall is captured by the attacker via the back-run",
+    "why_gain_exceeds_entitlement": "Attacker is entitled only to the INCENTIVE_FEE_BUILD caller incentive; the sandwich profit is extracted from protocol funds at the expense of the liquidity pool and future Torus holders"
+  },
+  "local_proof_required": {
+    "test_type": "fork",
+    "test_file_to_add": "src/contracts/test/TwapManipulationBuild.t.sol",
+    "setup": [
+      "Fork mainnet at block 25530134 (live_context.json latest_block)",
+      "Resolve pool address: ITorusToken(0xb47f575807fc5466285e1277ef8acfbb5c6686e8).titanXTorusPool()",
+      "Assert IUniswapV3Pool(pool).slot0() observationCardinality == 1; if > 1 and oldestObservation >= 900, reject finding",
+      "Confirm totalTitanXForBuild > 0 and liquidityAddedBuild == true on TorusBuyAndProcess",
+      "Fund attacker with sufficient TitanX to move pool tick materially (e.g., 1e27 TitanX via deal())",
+      "Record fairQuote = buyAndProcess.getTorusQuoteForTitanX(half) before manipulation"
+    ],
+    "transaction_sequence": [
+      "vm.roll(block.number); attacker approves pool and executes large Torus->TitanX swap to push tick to very low Torus price",
+      "vm.roll(block.number + 1); vm.warp(block.timestamp + 12);",
+      "manipulatedQuote = buyAndProcess.getTorusQuoteForTitanX(half); // should be near-zero",
+      "vm.prank(attacker); buyAndProcess.swapTitanXForTorusAndBuild(uint32(block.timestamp + 300));",
+      "Capture torusPurchased from BuyAndBuild event"
+    ],
+    "expected_assertions": [
+      "assertLt(manipulatedQuote, fairQuote / 5, 'TWAP window collapsed: quote is less than 20% of fair value')",
+      "assertLt(torusPurchased, fairQuote * 90 / 100, 'Protocol received less than 90% of fair Torus amount: sandwich extracted value')"
+    ],
+    "reject_if_assertion_fails": "If pool observationCardinality > 1 and getOldestObservationSecondsAgo() >= 900 at the fork block, the TWAP window does not collapse and the finding must be rejected. If torusPurchased >= fairQuote * 90 / 100, slippage protection is sufficient and the finding must be rejected."
+  },
+  "rejection_reason": "",
+  "deepwiki_source_url": "https://deepwiki.com/search/-deepwiki-exact-proof-gate-can_65de2283-e6f7-4315-9800-c7236518c593?mode=deep",
+  "deepwiki_verdict": "needs_local_proof"
+}

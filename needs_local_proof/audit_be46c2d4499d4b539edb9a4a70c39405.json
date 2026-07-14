@@ -1,0 +1,147 @@
+{
+  "schema_version": "proof-gate-v1",
+  "verdict": "NEEDS_LOCAL_PROOF",
+  "gate_question": "Does this exact current protocol, with current live state, allow an unprivileged attacker to extract funds or rewards beyond entitlement?",
+  "paid_scope_match": "fund_extraction",
+  "active_protocol": {
+    "blueprint_project": "Torus",
+    "source_repo": "Matchatat/Torus--001",
+    "live_context_protocol": "TorusBuyAndProcess (ethereum mainnet)",
+    "context_matches_blueprint": true,
+    "context_source": "setup/live_context.json"
+  },
+  "candidate": {
+    "source_file": "src/contracts/src/TorusBuyAndProcess.sol, src/contracts/src/library/OracleLibrary.sol",
+    "title_or_claim": "TORUS/TitanX pool observationCardinality=1 collapses TWAP window, enabling oracle manipulation sandwich on swapTitanXForTorusAndBurn",
+    "claimed_root_cause": "getOldestObservationSecondsAgo returns ~12s when observationCardinality=1 because (observationIndex+1)%1==0 always reads observations[0]; getTorusQuoteForTitanX clamps secondsAgo to this value with no floor; amountOutMinimum in _swapTitanXForTorus is derived entirely from the collapsed oracle",
+    "claimed_impact": "Attacker front-runs with large TitanX->TORUS swap in block N-1, protocol swap in block N uses manipulated ~12s TWAP as amountOutMinimum, attacker back-runs to capture spread at protocol expense"
+  },
+  "hard_gates": {
+    "current_protocol_only": true,
+    "live_state_supports_preconditions": false,
+    "unprivileged_attacker": true,
+    "attacker_controls_trigger": true,
+    "exact_code_path_exists": true,
+    "concrete_fund_or_reward_gain": true,
+    "gain_is_beyond_entitlement": true,
+    "not_dos_grief_or_liveness_only": true,
+    "not_admin_governance_or_key_compromise": true,
+    "not_external_dependency_only": true,
+    "not_expected_behavior": true,
+    "not_known_duplicate": true
+  },
+  "live_preconditions": [
+    {
+      "name": "TORUS/TitanX pool observationCardinality == 1",
+      "required": true,
+      "observed_value": "not present in live_context.json; pool address not directly exposed, must be resolved via torusToken.titanXTorusPool()",
+      "source": "missing",
+      "command_if_missing": "POOL=$(cast call 0xb47f575807fc5466285e1277ef8acfbb5c6686e8 'titanXTorusPool()(address)' --rpc-url mainnet) && cast call $POOL 'slot0()(uint160,int24,uint16,uint16,uint16,uint8,bool)' --rpc-url mainnet"
+    },
+    {
+      "name": "TORUS/TitanX pool has had at least one swap so observations[0].timestamp is set to a recent block",
+      "required": true,
+      "observed_value": "liquidityAdded=true in live_context.json; pool exists and has been used",
+      "source": "live_context field",
+      "command_if_missing": ""
+    },
+    {
+      "name": "titanXToTorusSlippage == 10 (default, not raised to compensate for manipulation)",
+      "required": true,
+      "observed_value": "10",
+      "source": "live_context field",
+      "command_if_missing": ""
+    },
+    {
+      "name": "Protocol holds TitanX allocated for an active burn interval",
+      "required": true,
+      "observed_value": "titanXUsedForBurns=4228011055445822390404019545470; lastTitanXBurnIntervalNumber=53087; active burn intervals confirmed",
+      "source": "live_context field",
+      "command_if_missing": ""
+    }
+  ],
+  "source_code_basis": [
+    {
+      "file": "src/contracts/src/library/OracleLibrary.sol",
+      "function": "getOldestObservationSecondsAgo",
+      "symbols_or_lines": "lines 128-141",
+      "why_it_matters": "When observationCardinality=1, (observationIndex+1)%1==0 always, so observations[0] (the most recently written slot) is always returned as the oldest observation. secondsAgo collapses to block.timestamp - observations[0].timestamp, which is ~12s after one block elapses since the last swap."
+    },
+    {
+      "file": "src/contracts/src/TorusBuyAndProcess.sol",
+      "function": "getTorusQuoteForTitanX",
+      "symbols_or_lines": "lines 1124-1132",
+      "why_it_matters": "Sets secondsAgo=900 then clamps it to oldestObservation with no minimum floor. With cardinality=1 this collapses the TWAP window to ~12s, making the oracle reflect the manipulated price from block N-1 rather than a 15-minute average."
+    },
+    {
+      "file": "src/contracts/src/TorusBuyAndProcess.sol",
+      "function": "_swapTitanXForTorus",
+      "symbols_or_lines": "lines 828-837",
+      "why_it_matters": "amountOutMinimum is derived entirely from the oracle quote with only 10% slippage tolerance. A collapsed TWAP window allows the manipulated price to set a low amountOutMinimum, enabling the sandwich to succeed without reverting."
+    },
+    {
+      "file": "src/contracts/src/TorusBuyAndProcess.sol",
+      "function": "addLiquidityToTorusTitanXPool",
+      "symbols_or_lines": "function signature only",
+      "why_it_matters": "Confirmed via grep that no call to increaseObservationCardinalityNext exists anywhere in TorusBuyAndProcess.sol or Torus.sol protocol source files. The pool starts at cardinality=1 and the protocol has no code path to increase it."
+    }
+  ],
+  "attacker_path": {
+    "actor": "unprivileged MEV bot",
+    "attacker_inputs": [
+      "Large TitanX->TORUS swap directly on the Uniswap V3 pool in block N-1 to move spot price and update observations[0].timestamp to block.timestamp(N-1)",
+      "MEV-ordered submission of swapTitanXForTorusAndBurn in block N after the front-run"
+    ],
+    "call_sequence": [
+      "Block N-1: Attacker swaps large TitanX->TORUS on pool directly, inflating TORUS price (fewer TORUS per TitanX). observations[0].timestamp = block.timestamp(N-1).",
+      "Block N: getOldestObservationSecondsAgo returns block.timestamp(N) - block.timestamp(N-1) ~= 12. secondsAgo is clamped to 12.",
+      "Block N: consult(pool, 12) returns tick reflecting the manipulated price from block N-1.",
+      "Block N: getTorusQuoteForTitanX returns a deflated TORUS quote (fewer TORUS per TitanX at the inflated TORUS price). adjustedTorusAmount = deflated_quote * 90 / 100.",
+      "Block N: swapTitanXForTorusAndBurn executes with the low amountOutMinimum; swap fills at the manipulated rate giving the protocol fewer TORUS than fair value.",
+      "Block N: Attacker back-runs, selling TORUS back to restore price, capturing the spread between manipulated and fair price."
+    ],
+    "state_before": [
+      "observationCardinality == 1 (required precondition, unconfirmed from live_context.json)",
+      "titanXToTorusSlippage == 10",
+      "Protocol holds TitanX in active burn interval"
+    ],
+    "state_after": [
+      "Protocol receives fewer TORUS than fair-price equivalent and burns them",
+      "Attacker captures spread between manipulated and fair TORUS/TitanX price"
+    ]
+  },
+  "extraction_analysis": {
+    "asset_or_reward": "TitanX held by protocol for burn intervals",
+    "attacker_gain": "Spread between manipulated TORUS/TitanX price and fair price, captured by selling TORUS back after the protocol swap executes at the manipulated rate",
+    "victim_or_protocol_loss": "Protocol receives fewer TORUS per TitanX spent than fair market rate; fewer TORUS are burned per interval than intended",
+    "why_gain_exceeds_entitlement": "Attacker extracts value from the protocol's swap by manipulating the oracle that sets amountOutMinimum. The 10% slippage tolerance does not bound a multi-block price manipulation of arbitrary magnitude; the attacker is entitled to zero value from the protocol's burn mechanism."
+  },
+  "local_proof_required": {
+    "test_type": "fork",
+    "test_file_to_add": "src/contracts/test/OracleCardinalityExploit.t.sol",
+    "setup": [
+      "Fork mainnet at block 25530134 (live_context captured_at block)",
+      "Resolve pool: POOL = ITorus(0xb47f575807fc5466285e1277ef8acfbb5c6686e8).titanXTorusPool()",
+      "Read IUniswapV3Pool(POOL).slot0() and check 4th return value (observationCardinality)",
+      "If cardinality > 1: use vm.store to set the cardinality field in slot0 to 1 and set observations[0].timestamp to block.timestamp - 12 to simulate the vulnerable state",
+      "Record fairQuote = getTorusQuoteForTitanX(1e18) as baseline",
+      "Simulate attacker front-run: large TitanX->TORUS swap on pool to move price significantly",
+      "vm.roll(block.number + 1); vm.warp(block.timestamp + 12)",
+      "Record manipulatedQuote = getTorusQuoteForTitanX(1e18)",
+      "Call swapTitanXForTorusAndBurn and record torusBurned"
+    ],
+    "transaction_sequence": [
+      "Block N-1: attacker swaps large TitanX->TORUS directly on pool",
+      "Block N: protocol.swapTitanXForTorusAndBurn(intervalId)",
+      "Block N: attacker swaps TORUS->TitanX to restore price and capture spread"
+    ],
+    "expected_assertions": [
+      "assertLt(manipulatedQuote, fairQuote * 95 / 100, 'oracle not collapsed by >5%')",
+      "assertLt(torusBurned, fairTorusBurned * 95 / 100, 'protocol received fewer TORUS than fair value')"
+    ],
+    "reject_if_assertion_fails": "If pool cardinality is already > 1 on mainnet and the vm.store simulation is required, the finding is latent risk only (not currently exploitable) and should be downgraded. Confirm live cardinality via the cast command in live_preconditions before promotion."
+  },
+  "rejection_reason": "Not rejected. live_state_supports_preconditions is false solely because the TORUS/TitanX pool observationCardinality is absent from live_context.json and cannot be confirmed without a live RPC call. All other hard gates pass: the code path is confirmed in source, no increaseObservationCardinalityNext call exists anywhere in the protocol, the oracle collapse mechanism is structurally correct, and the attacker path is concrete. Local fork proof is required to confirm live cardinality before promotion.",
+  "deepwiki_source_url": "https://deepwiki.com/search/-deepwiki-exact-proof-gate-can_765f8815-c287-42ca-8dda-8935f07565b3?mode=deep",
+  "deepwiki_verdict": "needs_local_proof"
+}

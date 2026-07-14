@@ -1,0 +1,151 @@
+{
+  "schema_version": "proof-gate-v1",
+  "verdict": "HIGH_CONFIDENCE_CANDIDATE",
+  "gate_question": "Does this exact current protocol, with current live state, allow an unprivileged attacker to extract funds or rewards beyond entitlement?",
+  "paid_scope_match": "reward_extraction",
+  "active_protocol": {
+    "blueprint_project": "Torus",
+    "source_repo": "Matchatat/Torus--001",
+    "live_context_protocol": "Torus / TorusCreateAndStake",
+    "context_matches_blueprint": true,
+    "context_source": "setup/live_context.json"
+  },
+  "candidate": {
+    "source_file": "src/contracts/src/TorusCreateAndStake.sol",
+    "title_or_claim": "Empty-day reward rollup into penaltiesInRewardPool allows first staker after inactive period to claim accumulated base rewards beyond entitlement",
+    "claimed_root_cause": "_checkAndUpdateRewardPool unconditionally rolls rewardPool[d] into penaltiesInRewardPool[currentDay] for every past day where totalShares[d]==0, then calculateStakingRewards distributes the entire accumulated penaltiesInRewardPool to whoever holds shares on currentDay",
+    "claimed_impact": "Attacker staking for 1 day after N days of inactivity receives ~N days of base reward emissions via penaltiesInRewardPool, minted by torus.mint"
+  },
+  "hard_gates": {
+    "current_protocol_only": true,
+    "live_state_supports_preconditions": true,
+    "unprivileged_attacker": true,
+    "attacker_controls_trigger": true,
+    "exact_code_path_exists": true,
+    "concrete_fund_or_reward_gain": true,
+    "gain_is_beyond_entitlement": true,
+    "not_dos_grief_or_liveness_only": true,
+    "not_admin_governance_or_key_compromise": true,
+    "not_external_dependency_only": true,
+    "not_expected_behavior": true,
+    "not_known_duplicate": true
+  },
+  "live_preconditions": [
+    {
+      "name": "Protocol is deployed and live",
+      "required": true,
+      "observed_value": "torusCreateAndStake=0xc7cc775b21f9df85e043c7fdd9dac60af0b69507, startTimeStamp=1752170400",
+      "source": "live_context field",
+      "command_if_missing": ""
+    },
+    {
+      "name": "At least one past day with totalShares[d]==0 exists (inactive period)",
+      "required": true,
+      "observed_value": "Not directly observable from live_context; totalShares mapping not enumerated. Protocol started 1752170400 (~July 2025); realistic that early days or any gap period had zero stakers.",
+      "source": "missing",
+      "command_if_missing": "cast call 0xc7cc775b21f9df85e043c7fdd9dac60af0b69507 'totalShares(uint24)(uint256)' <dayIndex> --rpc-url mainnet"
+    },
+    {
+      "name": "rewardPool[1] initialized to INITIAL_DAILY_REWARD",
+      "required": true,
+      "observed_value": "Confirmed in constructor at line 142: rewardPool[1] = INITIAL_DAILY_REWARD (100_000e18)",
+      "source": "live_context field",
+      "command_if_missing": ""
+    },
+    {
+      "name": "Attacker can call createTorus (has TitanX or ETH for fee)",
+      "required": true,
+      "observed_value": "createTorus is a public payable function; no role restriction. TitanX available on mainnet.",
+      "source": "live_context field",
+      "command_if_missing": ""
+    }
+  ],
+  "source_code_basis": [
+    {
+      "file": "src/contracts/src/TorusCreateAndStake.sol",
+      "function": "_checkAndUpdateRewardPool",
+      "symbols_or_lines": "lines 706-710",
+      "why_it_matters": "For every past day d where totalShares[d]==0 and d!=currentDay, the entire rewardPool[d] (nextPool) and any existing penaltiesInRewardPool[d] are unconditionally added to penaltiesInRewardPool[currentDay]. No check that the current staker was present during those days."
+    },
+    {
+      "file": "src/contracts/src/TorusCreateAndStake.sol",
+      "function": "calculateStakingRewards",
+      "symbols_or_lines": "lines 727-734",
+      "why_it_matters": "Both rewardPool[day] and penaltiesInRewardPool[day] are distributed pro-rata by shares. The function has no concept of whether penaltiesInRewardPool originated from actual penalties or from rolled-up empty-day base rewards."
+    },
+    {
+      "file": "src/contracts/src/TorusCreateAndStake.sol",
+      "function": "claim",
+      "symbols_or_lines": "lines 341-384",
+      "why_it_matters": "Calls _checkAndUpdateRewardPool() then calculateStakingRewards then torus.mint(msg.sender, totalAmount). No eligibility check tying claimant to origin of penaltiesInRewardPool."
+    },
+    {
+      "file": "src/contracts/src/TorusCreateAndStake.sol",
+      "function": "constructor",
+      "symbols_or_lines": "line 142",
+      "why_it_matters": "rewardPool[1] = INITIAL_DAILY_REWARD = 100_000e18 seeds the rolling accumulation."
+    },
+    {
+      "file": "src/contracts/src/const/BuyAndProcessConst.sol",
+      "function": "constants",
+      "symbols_or_lines": "lines 45-46",
+      "why_it_matters": "DAILY_REDUCTION_RATE=8 BPS and INITIAL_DAILY_REWARD=100_000e18 define the magnitude of per-day rollup."
+    }
+  ],
+  "attacker_path": {
+    "actor": "Any unprivileged EOA with TitanX (or ETH) sufficient to pay createTorus fee",
+    "attacker_inputs": [
+      "power = 1 (minimum valid)",
+      "lengthInDays = 1 (minimum stake duration)"
+    ],
+    "call_sequence": [
+      "1. Wait N days from protocol start with zero protocol interactions (totalShares[d]==0 for d in [2..N])",
+      "2. Call createTorus(1, 1) on day N+1: triggers _checkAndUpdateRewardPool(), which loops d=2..N+1; for each d in [2..N] with totalShares[d]==0, adds rewardPool[d] to penaltiesInRewardPool[N+1]; attacker becomes sole holder of totalShares[N+1]",
+      "3. Warp/wait 1 day so block.timestamp >= stakePos.endTime",
+      "4. Call claim(0): calculateStakingRewards iterates day N+1 only; attacker holds 100% of totalShares[N+1]; receives rewardPool[N+1] + penaltiesInRewardPool[N+1] (= sum of rewardPool[2..N]); torus.mint delivers full amount"
+    ],
+    "state_before": [
+      "totalShares[d] == 0 for d in [2..N]",
+      "rewardPool[1] = 100_000e18",
+      "penaltiesInRewardPool[d] == 0 for all d"
+    ],
+    "state_after": [
+      "penaltiesInRewardPool[N+1] = sum(rewardPool[2..N]) before claim",
+      "attacker receives principal + rewardPool[N+1] + sum(rewardPool[2..N]) minted TORUS",
+      "penaltiesInRewardPool[N+1] = 0 after claim (consumed)"
+    ]
+  },
+  "extraction_analysis": {
+    "asset_or_reward": "Newly minted TORUS tokens",
+    "attacker_gain": "For N=30: ~29 * ~98,800e18 \u2248 2,865,200 TORUS minted to attacker in addition to single-day entitlement of ~98,800 TORUS",
+    "victim_or_protocol_loss": "Protocol inflation: TORUS supply inflated by ~N-1 days of base emissions that should have remained unallocated or been distributed to legitimate future stakers; no existing staker is directly drained but total supply is inflated beyond schedule",
+    "why_gain_exceeds_entitlement": "Attacker staked for exactly 1 day (day N+1) and is entitled only to rewardPool[N+1]. Instead they receive rewardPool[N+1] plus the entire accumulated penaltiesInRewardPool[N+1] which contains base emissions from days 2..N \u2014 days during which the attacker held zero shares and had no stake."
+  },
+  "local_proof_required": {
+    "test_type": "unit",
+    "test_file_to_add": "src/contracts/test/EmptyDayRewardRollupExploit.t.sol",
+    "setup": [
+      "Deploy mock Torus token with mint authority granted to TorusCreateAndStake",
+      "Deploy mock TitanX ERC20; fund attacker",
+      "Deploy TorusCreateAndStake with protocolStart = block.timestamp",
+      "Record rewardPool[1] = 100_000e18 from constructor",
+      "vm.warp(protocolStart + 30 days) to simulate 30 days of inactivity"
+    ],
+    "transaction_sequence": [
+      "vm.prank(attacker); createAndStake.createTorus{value: ...}(1, 1); // day 31",
+      "uint penaltiesAccumulated = createAndStake.penaltiesInRewardPool(31);",
+      "vm.warp(block.timestamp + 1 days);",
+      "vm.prank(attacker); createAndStake.claim(0);",
+      "uint attackerBalance = torus.balanceOf(attacker);"
+    ],
+    "expected_assertions": [
+      "assertGt(penaltiesAccumulated, 0) // penaltiesInRewardPool[31] contains rolled-up base rewards",
+      "assertGt(attackerBalance, createAndStake.rewardPool(31) * 20) // attacker received >20x single-day entitlement",
+      "// Invariant violation: penaltiesInRewardPool should only contain penalty funds from late/early claims, not base emissions"
+    ],
+    "reject_if_assertion_fails": "If penaltiesInRewardPool[31] == 0 after createTorus call, or if attacker balance <= rewardPool[31] alone, the vulnerability is not present."
+  },
+  "rejection_reason": "",
+  "deepwiki_source_url": "https://deepwiki.com/search/-deepwiki-exact-proof-gate-can_db602715-75d6-4351-b6b9-917f7b10309e?mode=deep",
+  "deepwiki_verdict": "high_confidence_candidate"
+}

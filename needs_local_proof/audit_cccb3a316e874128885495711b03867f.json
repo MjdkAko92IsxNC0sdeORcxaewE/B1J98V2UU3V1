@@ -1,0 +1,161 @@
+{
+  "schema_version": "proof-gate-v1",
+  "verdict": "NEEDS_LOCAL_PROOF",
+  "gate_question": "Does this exact current protocol, with current live state, allow an unprivileged attacker to extract funds or rewards beyond entitlement?",
+  "paid_scope_match": "protocol_value_drain",
+  "active_protocol": {
+    "blueprint_project": "Torus",
+    "source_repo": "Moishetat/Torus--002",
+    "live_context_protocol": "TorusBuyAndProcess",
+    "context_matches_blueprint": true,
+    "context_source": "setup/live_context.json"
+  },
+  "candidate": {
+    "source_file": "src/contracts/src/TorusBuyAndProcess.sol",
+    "title_or_claim": "TWAP manipulation sandwich on ETH\u2192TitanX leg of swapETHForTorusAndBurn",
+    "claimed_root_cause": "getTitanXQuoteForETH uses a 15-minute TWAP (shortened by oldestObservation fallback) and _swapETHForTitanX applies only a 10% slippage tolerance on top of that potentially-deflated quote, leaving amountOutMinimum well below fair market if the TWAP is manipulated",
+    "claimed_impact": "Attacker sandwiches the protocol's exactInput swap, extracting value from the per-interval ETH allocation at protocol expense"
+  },
+  "hard_gates": {
+    "current_protocol_only": true,
+    "live_state_supports_preconditions": true,
+    "unprivileged_attacker": true,
+    "attacker_controls_trigger": true,
+    "exact_code_path_exists": true,
+    "concrete_fund_or_reward_gain": true,
+    "gain_is_beyond_entitlement": true,
+    "not_dos_grief_or_liveness_only": true,
+    "not_admin_governance_or_key_compromise": true,
+    "not_external_dependency_only": true,
+    "not_expected_behavior": true,
+    "not_known_duplicate": true
+  },
+  "live_preconditions": [
+    {
+      "name": "ethToTitanXSlippage",
+      "required": true,
+      "observed_value": "10",
+      "source": "live_context field common_views.ethToTitanXSlippage",
+      "command_if_missing": ""
+    },
+    {
+      "name": "liquidityAdded",
+      "required": true,
+      "observed_value": "true",
+      "source": "live_context field common_views.liquidityAdded",
+      "command_if_missing": ""
+    },
+    {
+      "name": "totalETHBurn (available ETH for burn intervals)",
+      "required": true,
+      "observed_value": "2218081612310240917 (~2.22 ETH)",
+      "source": "live_context field common_views.totalETHBurn",
+      "command_if_missing": ""
+    },
+    {
+      "name": "DAILY_ALLOCATION_ETH_BURNING (per-interval ETH allocation)",
+      "required": true,
+      "observed_value": "500 (units: live context integer; ~3.47 ETH/interval at 144 intervals/day if in ETH)",
+      "source": "live_context field common_views.DAILY_ALLOCATION_ETH_BURNING",
+      "command_if_missing": ""
+    },
+    {
+      "name": "TITAN_X_ETH_POOL observation cardinality (determines effective TWAP window)",
+      "required": true,
+      "observed_value": "not captured in live_context",
+      "source": "missing",
+      "command_if_missing": "cast call 0xc45A81BC23A64eA556ab4CdF08A86B61cdcEEA8b 'slot0()(uint160,int24,uint16,uint16,uint16,uint8,bool)' --rpc-url $ETH_RPC_URL"
+    },
+    {
+      "name": "TITAN_X_ETH_POOL liquidity depth (determines TWAP manipulation cost)",
+      "required": true,
+      "observed_value": "not captured in live_context",
+      "source": "missing",
+      "command_if_missing": "cast call 0xc45A81BC23A64eA556ab4CdF08A86B61cdcEEA8b 'liquidity()(uint128)' --rpc-url $ETH_RPC_URL"
+    }
+  ],
+  "source_code_basis": [
+    {
+      "file": "src/contracts/src/TorusBuyAndProcess.sol",
+      "function": "getTitanXQuoteForETH",
+      "symbols_or_lines": "L1142-1164",
+      "why_it_matters": "Reads TWAP from TITAN_X_ETH_POOL with up to 900s window; oldestObservation fallback at L1150-1152 can shorten the window if pool cardinality is low, making manipulation cheaper"
+    },
+    {
+      "file": "src/contracts/src/TorusBuyAndProcess.sol",
+      "function": "_swapETHForTitanX",
+      "symbols_or_lines": "L1092-1115",
+      "why_it_matters": "Sets amountOutMinimum = TWAP_quote * 90/100 at L1102-1103; if TWAP is deflated by X%, effective floor is (1-X%)*90% of fair value"
+    },
+    {
+      "file": "src/contracts/src/TorusBuyAndProcess.sol",
+      "function": "swapETHForTorusAndBurn",
+      "symbols_or_lines": "L263-295",
+      "why_it_matters": "Permissionless external entry point (nonReentrant, burnETHIntervalUpdate modifier only); attacker can time the call after TWAP manipulation"
+    },
+    {
+      "file": "src/contracts/src/const/BuyAndProcessConst.sol",
+      "function": "constants",
+      "symbols_or_lines": "L36-44",
+      "why_it_matters": "INTERVAL_TIME=10 minutes, INTERVALS_PER_DAY=144, POOL_FEE=10000 (1%); confirms per-interval ETH size and pool identity"
+    }
+  ],
+  "attacker_path": {
+    "actor": "any unprivileged EOA or contract with sufficient capital",
+    "attacker_inputs": [
+      "Sustained large buy-side swaps on TITAN_X_ETH_POOL over >=secondsAgo seconds to shift tick cumulative upward (fewer TitanX per ETH in TWAP)",
+      "Front-run buy of TitanX on TITAN_X_ETH_POOL immediately before swapETHForTorusAndBurn",
+      "Back-run sell of TitanX immediately after swapETHForTorusAndBurn executes"
+    ],
+    "call_sequence": [
+      "1. Attacker executes repeated large TitanX buys on TITAN_X_ETH_POOL across multiple blocks spanning >=secondsAgo seconds (vm.warp+vm.roll in test), deflating the TWAP quote",
+      "2. getTitanXQuoteForETH(ethToSwapAndBurn) returns deflated expectedTitanXAmount",
+      "3. adjustedTitanXAmount = deflatedQuote * 90 / 100 \u2014 amountOutMinimum is set well below fair market",
+      "4. Attacker front-runs swapETHForTorusAndBurn with a large TitanX buy, pushing spot price further above TWAP",
+      "5. Protocol's exactInput executes at inflated spot; low amountOutMinimum does not revert",
+      "6. Attacker back-runs by selling TitanX, capturing the spread"
+    ],
+    "state_before": [
+      "currInterval.amountBurned == 0 (new interval available)",
+      "timeElapsed > INTERVAL_TIME (10 minutes since last burn)",
+      "TITAN_X_ETH_POOL TWAP at fair market tick"
+    ],
+    "state_after": [
+      "Protocol received fewer TitanX than fair market value for its ETH",
+      "Attacker net positive after gas and manipulation cost (to be verified by fork test)"
+    ]
+  },
+  "extraction_analysis": {
+    "asset_or_reward": "ETH held by TorusBuyAndProcess contract (per-interval allocation from totalETHBurn)",
+    "attacker_gain": "Sandwich profit: difference between TitanX bought at pre-manipulation price and sold at post-swap price, minus manipulation cost",
+    "victim_or_protocol_loss": "Protocol receives fewer TitanX per ETH than fair market; fewer Torus tokens are burned per interval, diluting the burn mechanism",
+    "why_gain_exceeds_entitlement": "Attacker is not a party to the protocol's burn flow; any value extracted from the swap spread comes entirely at the protocol's expense and is not an entitled fee or reward"
+  },
+  "local_proof_required": {
+    "test_type": "fork",
+    "test_file_to_add": "src/contracts/test/TwapManipulationForkTest.t.sol",
+    "setup": [
+      "Fork mainnet at block 25530134 (live_context.captured_at block)",
+      "Identify TITAN_X_ETH_POOL (0xc45A81BC23A64eA556ab4CdF08A86B61cdcEEA8b) observation cardinality via slot0()",
+      "Warp time so burnETHIntervalUpdate creates a new interval with amountAllocated > 0",
+      "Record pre-manipulation getTitanXQuoteForETH(ethToSwapAndBurn) as fairQuote",
+      "Execute repeated large TitanX buys on TITAN_X_ETH_POOL across vm.warp(+600s)+vm.roll(+1) iterations spanning >=secondsAgo seconds to shift tick cumulative",
+      "Record post-manipulation getTitanXQuoteForETH(ethToSwapAndBurn) as deflatedQuote; assert deflatedQuote < fairQuote"
+    ],
+    "transaction_sequence": [
+      "attacker.buyTitanX(largeAmount) x N blocks over >=900s",
+      "attacker.buyTitanX(largeAmount) // front-run",
+      "TorusBuyAndProcess.swapETHForTorusAndBurn(deadline)",
+      "attacker.sellTitanX(allTitanX) // back-run"
+    ],
+    "expected_assertions": [
+      "assertLt(deflatedQuote, fairQuote * 95 / 100) // TWAP deflated by >5%",
+      "assertLt(titanXReceivedByProtocol, fairQuote * 90 / 100) // protocol got <90% of fair value",
+      "assertGt(attackerTitanXProceeds - attackerTitanXSpent - manipulationCostInTitanX, 0) // net attacker profit"
+    ],
+    "reject_if_assertion_fails": "If attackerProfit <= 0 after accounting for all swap fees (1% pool fee on each leg) and the cost of sustained TWAP manipulation on TITAN_X_ETH_POOL, the finding is not economically viable and must be REJECTED. The per-interval ETH amount (~3.47 ETH at current DAILY_ALLOCATION_ETH_BURNING=500 with 144 intervals/day) may be too small to cover manipulation cost on a high-liquidity pool."
+  },
+  "rejection_reason": "",
+  "deepwiki_source_url": "https://deepwiki.com/search/-deepwiki-exact-proof-gate-can_8506a08c-b62e-41dd-9bbb-bf079de77ae1?mode=deep",
+  "deepwiki_verdict": "needs_local_proof"
+}

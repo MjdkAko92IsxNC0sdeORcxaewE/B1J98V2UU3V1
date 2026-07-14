@@ -1,0 +1,159 @@
+{
+  "schema_version": "proof-gate-v1",
+  "verdict": "NEEDS_LOCAL_PROOF",
+  "gate_question": "Does this exact current protocol, with current live state, allow an unprivileged attacker to extract funds or rewards beyond entitlement?",
+  "paid_scope_match": "protocol_value_drain",
+  "active_protocol": {
+    "blueprint_project": "Torus",
+    "source_repo": "Matchatat/Torus--001",
+    "live_context_protocol": "TorusBuyAndProcess",
+    "context_matches_blueprint": true,
+    "context_source": "setup/live_context.json"
+  },
+  "candidate": {
+    "source_file": "src/contracts/src/TorusBuyAndProcess.sol",
+    "title_or_claim": "TWAP manipulation sandwich on ETH->TitanX swap in swapETHForTorusAndBurn",
+    "claimed_root_cause": "getTitanXQuoteForETH uses a 15-minute TWAP that can be deflated by sustained buy-side pressure; _swapETHForTitanX applies only 10% slippage on top of the potentially-deflated TWAP, allowing a sandwich attacker to extract value from the protocol's ETH burn allocation.",
+    "claimed_impact": "Attacker sandwiches swapETHForTorusAndBurn, receiving TitanX profit while the protocol receives fewer TitanX than fair market value for its ETH."
+  },
+  "hard_gates": {
+    "current_protocol_only": true,
+    "live_state_supports_preconditions": true,
+    "unprivileged_attacker": true,
+    "attacker_controls_trigger": true,
+    "exact_code_path_exists": true,
+    "concrete_fund_or_reward_gain": false,
+    "gain_is_beyond_entitlement": true,
+    "not_dos_grief_or_liveness_only": true,
+    "not_admin_governance_or_key_compromise": true,
+    "not_external_dependency_only": false,
+    "not_expected_behavior": true,
+    "not_known_duplicate": true
+  },
+  "live_preconditions": [
+    {
+      "name": "ethToTitanXSlippage",
+      "required": true,
+      "observed_value": "10",
+      "source": "live_context field common_views.ethToTitanXSlippage",
+      "command_if_missing": ""
+    },
+    {
+      "name": "totalETHBurn (ETH allocated for burn intervals)",
+      "required": true,
+      "observed_value": "2218081612310240917 (~2.22 ETH)",
+      "source": "live_context field common_views.totalETHBurn",
+      "command_if_missing": ""
+    },
+    {
+      "name": "per-interval ETH amount (derived)",
+      "required": true,
+      "observed_value": "totalETHBurn * DAILY_ALLOCATION_ETH_BURNING(500 BPS) / 10000 / INTERVALS_PER_DAY(144) \u2248 769,472,087,607,722 wei (~0.00077 ETH per interval)",
+      "source": "live_context common_views + src/contracts/src/const/BuyAndProcessConst.sol",
+      "command_if_missing": ""
+    },
+    {
+      "name": "TITAN_X_ETH_POOL liquidity depth and observation cardinality",
+      "required": true,
+      "observed_value": "unknown \u2014 pool address 0xc45a81bc23a64ea556ab4cdf08a86b61cdceea8b not queried in live_context",
+      "source": "missing",
+      "command_if_missing": "cast call 0xc45a81bc23a64ea556ab4cdf08a86b61cdceea8b 'slot0()(uint160,int24,uint16,uint16,uint16,uint8,bool)' --rpc-url $ETH_RPC && cast call 0xc45a81bc23a64ea556ab4cdf08a86b61cdceea8b 'liquidity()(uint128)' --rpc-url $ETH_RPC"
+    },
+    {
+      "name": "A new ETH burn interval is ready (currInterval.amountBurned == 0 and timeElapsed > INTERVAL_TIME)",
+      "required": true,
+      "observed_value": "lastBurnedETHIntervalStartTimestamp=1784021400; interval readiness depends on current block.timestamp vs lastBurnedETHIntervalStartTimestamp + 600s",
+      "source": "live_context field common_views.lastBurnedETHIntervalStartTimestamp",
+      "command_if_missing": "cast call <CONTRACT> 'ethIntervalsBurn(uint32)(uint256,uint256)' <lastETHBurnIntervalNumber> --rpc-url $ETH_RPC"
+    }
+  ],
+  "source_code_basis": [
+    {
+      "file": "src/contracts/src/TorusBuyAndProcess.sol",
+      "function": "getTitanXQuoteForETH",
+      "symbols_or_lines": "L1142-1164",
+      "why_it_matters": "Reads TWAP from TITAN_X_ETH_POOL with up to 15-minute window; falls back to oldestObservation if pool cardinality is low, shortening the manipulation window and reducing cost."
+    },
+    {
+      "file": "src/contracts/src/TorusBuyAndProcess.sol",
+      "function": "_swapETHForTitanX",
+      "symbols_or_lines": "L1092-1115",
+      "why_it_matters": "Sets amountOutMinimum = TWAP_quote * (100 - ethToTitanXSlippage) / 100. If TWAP is deflated by X%, effective floor is (1-X%)*90% of fair value."
+    },
+    {
+      "file": "src/contracts/src/TorusBuyAndProcess.sol",
+      "function": "swapETHForTorusAndBurn",
+      "symbols_or_lines": "L263-295",
+      "why_it_matters": "Unprivileged callable (nonReentrant, burnETHIntervalUpdate modifier only); calls _swapETHForTitanX with the interval's allocated ETH, making it the sandwich target."
+    },
+    {
+      "file": "src/contracts/src/const/BuyAndProcessConst.sol",
+      "function": "constants",
+      "symbols_or_lines": "L35-36, L44",
+      "why_it_matters": "INTERVALS_PER_DAY=144, INTERVAL_TIME=10 minutes, POOL_FEE=10000 (1%). Per-interval ETH allocation is ~0.00077 ETH at current live state, which is the maximum sandwich profit target."
+    }
+  ],
+  "attacker_path": {
+    "actor": "Any unprivileged EOA with capital to move TITAN_X_ETH_POOL TWAP",
+    "attacker_inputs": [
+      "Sustained large buy-side swaps on TITAN_X_ETH_POOL over >=secondsAgo seconds to shift tick cumulative upward (fewer TitanX per ETH in TWAP)",
+      "Front-run transaction: large TitanX buy immediately before swapETHForTorusAndBurn",
+      "Back-run transaction: sell TitanX immediately after swapETHForTorusAndBurn"
+    ],
+    "call_sequence": [
+      "1. Attacker buys TitanX on TITAN_X_ETH_POOL repeatedly across multiple blocks spanning >=900s to deflate TWAP (fewer TitanX per ETH)",
+      "2. getTitanXQuoteForETH(ethToSwapAndBurn) returns deflated value",
+      "3. adjustedTitanXAmount = deflatedQuote * 90 / 100 \u2014 amountOutMinimum is well below fair market",
+      "4. Attacker front-runs swapETHForTorusAndBurn with large TitanX buy, pushing spot price further",
+      "5. Protocol's exactInput swap executes at inflated spot; low amountOutMinimum does not revert",
+      "6. Attacker back-runs by selling TitanX, capturing spread"
+    ],
+    "state_before": [
+      "totalETHBurn = 2218081612310240917 wei",
+      "ethToTitanXSlippage = 10",
+      "TITAN_X_ETH_POOL TWAP at fair market rate"
+    ],
+    "state_after": [
+      "Protocol receives fewer TitanX than fair market for its ~0.00077 ETH interval allocation",
+      "Attacker net positive if sandwich profit > TWAP manipulation cost"
+    ]
+  },
+  "extraction_analysis": {
+    "asset_or_reward": "TitanX tokens (protocol's ETH burn allocation converted to TitanX)",
+    "attacker_gain": "Spread from sandwich: buy TitanX cheap before protocol swap, sell at inflated price after",
+    "victim_or_protocol_loss": "Protocol receives fewer TitanX per ETH than fair market; excess value captured by attacker",
+    "why_gain_exceeds_entitlement": "Attacker is not entitled to any portion of the protocol's ETH burn allocation; any value extracted via sandwich is entirely beyond entitlement. However, per-interval ETH is ~0.00077 ETH (~$1.5-2 at current prices), making the maximum sandwich profit negligible relative to the capital cost of sustained TWAP manipulation on a major Uniswap V3 pool. Economic viability is the critical unresolved gate."
+  },
+  "local_proof_required": {
+    "test_type": "fork",
+    "test_file_to_add": "src/contracts/test/TwapManipulationForkTest.t.sol",
+    "setup": [
+      "Fork mainnet at block 25530134 (live_context.latest_block)",
+      "Warp time so a new ETH burn interval is available (block.timestamp > lastBurnedETHIntervalStartTimestamp + INTERVAL_TIME)",
+      "Record pre-manipulation getTitanXQuoteForETH(ethToSwapAndBurn) as fairQuote",
+      "Simulate TWAP manipulation: execute repeated large swaps on TITAN_X_ETH_POOL across vm.warp+vm.roll steps spanning >=900 seconds",
+      "Record post-manipulation getTitanXQuoteForETH(ethToSwapAndBurn) as deflatedQuote; confirm deflatedQuote < fairQuote",
+      "Record attacker TitanX balance before front-run",
+      "Front-run: attacker buys large TitanX on TITAN_X_ETH_POOL",
+      "Call swapETHForTorusAndBurn from attacker address",
+      "Back-run: attacker sells TitanX on TITAN_X_ETH_POOL",
+      "Compute attackerProfit = (attacker TitanX sold * spot price) - (attacker TitanX bought * pre-frontrun price) - TWAP manipulation gas and capital cost"
+    ],
+    "transaction_sequence": [
+      "vm.warp(lastBurnedETHIntervalStartTimestamp + INTERVAL_TIME + 1)",
+      "loop: IUniswapV3Pool(TITAN_X_ETH_POOL).swap(...) + vm.warp(+60) + vm.roll(+5) x 15",
+      "IUniswapV3Pool(TITAN_X_ETH_POOL).swap(attacker, false, largeAmount, ...)",
+      "TorusBuyAndProcess.swapETHForTorusAndBurn(deadline)",
+      "IUniswapV3Pool(TITAN_X_ETH_POOL).swap(attacker, true, attackerTitanXBalance, ...)"
+    ],
+    "expected_assertions": [
+      "assertLt(deflatedQuote, fairQuote * 95 / 100, 'TWAP deflated by >=5%')",
+      "assertLt(titanXReceivedByProtocol, fairQuote * 90 / 100, 'protocol got <90% of fair value')",
+      "assertGt(attackerProfit, 0, 'attacker net positive after all costs')"
+    ],
+    "reject_if_assertion_fails": "If attackerProfit <= 0 after accounting for TWAP manipulation cost on TITAN_X_ETH_POOL, the finding is not economically viable given the ~0.00077 ETH per-interval allocation and must be REJECTED. The per-interval ETH amount at current live state is so small (~$1.5 USD equivalent) that TWAP manipulation cost on a major Uniswap V3 pool will almost certainly exceed sandwich profit, making rejection the expected outcome of the fork test."
+  },
+  "rejection_reason": "concrete_fund_or_reward_gain and not_external_dependency_only gates cannot be set to true without fork proof. The per-interval ETH allocation at current live state is approximately 769,472,087,607,722 wei (~0.00077 ETH), yielding a maximum sandwich profit of a fraction of that amount. Sustained TWAP manipulation on TITAN_X_ETH_POOL (a major Uniswap V3 pool) over 900 seconds requires capital orders of magnitude larger than the extractable value. The attack is theoretically sound at the source level but is almost certainly not economically viable at current live state. Fork test required to confirm or reject.",
+  "deepwiki_source_url": "https://deepwiki.com/search/-deepwiki-exact-proof-gate-can_a9c0169f-3f04-4968-8dec-98e90b59e2c2?mode=deep",
+  "deepwiki_verdict": "needs_local_proof"
+}

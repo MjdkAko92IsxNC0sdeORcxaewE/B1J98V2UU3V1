@@ -1,0 +1,156 @@
+{
+  "schema_version": "proof-gate-v1",
+  "verdict": "HIGH_CONFIDENCE_CANDIDATE",
+  "gate_question": "Does this exact current protocol, with current live state, allow an unprivileged attacker to extract funds or rewards beyond entitlement?",
+  "paid_scope_match": "reward_extraction",
+  "active_protocol": {
+    "blueprint_project": "Torus",
+    "source_repo": "Moishetat/Torus--002",
+    "live_context_protocol": "TorusBuyAndProcess on Ethereum mainnet",
+    "context_matches_blueprint": true,
+    "context_source": "setup/live_context.json"
+  },
+  "candidate": {
+    "source_file": "src/contracts/src/TorusBuyAndProcess.sol",
+    "title_or_claim": "Missed-interval accumulation in _calculateIntervalsTitanXBurn allows first caller after dormant period to extract amplified TitanX incentive",
+    "claimed_root_cause": "amountAllocated for a single interval is set to amountPerInterval * (1 + missedIntervals), capped only at totalTitanXBurn; the 1.5% incentive is then computed on this amplified allocation rather than on a single interval's share",
+    "claimed_impact": "Attacker extracts up to 1.5% * totalTitanXBurn (~5.85 billion TitanX at cap) in a single call; currently ~144 missed intervals yield 145x single-interval incentive (~117 trillion raw TitanX units) without any waiting"
+  },
+  "hard_gates": {
+    "current_protocol_only": true,
+    "live_state_supports_preconditions": true,
+    "unprivileged_attacker": true,
+    "attacker_controls_trigger": true,
+    "exact_code_path_exists": true,
+    "concrete_fund_or_reward_gain": true,
+    "gain_is_beyond_entitlement": true,
+    "not_dos_grief_or_liveness_only": true,
+    "not_admin_governance_or_key_compromise": true,
+    "not_external_dependency_only": true,
+    "not_expected_behavior": true,
+    "not_known_duplicate": true
+  },
+  "live_preconditions": [
+    {
+      "name": "liquidityAdded",
+      "required": true,
+      "observed_value": "true",
+      "source": "live_context field common_views.liquidityAdded",
+      "command_if_missing": ""
+    },
+    {
+      "name": "totalTitanXBurn",
+      "required": true,
+      "observed_value": "390047518149437255354831991687",
+      "source": "live_context field common_views.totalTitanXBurn",
+      "command_if_missing": ""
+    },
+    {
+      "name": "lastBurnedTitanXIntervalStartTimestamp",
+      "required": true,
+      "observed_value": "1784022600",
+      "source": "live_context field common_views.lastBurnedTitanXIntervalStartTimestamp",
+      "command_if_missing": ""
+    },
+    {
+      "name": "DAILY_ALLOCATION_TITAN_X_BURNING",
+      "required": true,
+      "observed_value": "200",
+      "source": "live_context field common_views.DAILY_ALLOCATION_TITAN_X_BURNING",
+      "command_if_missing": ""
+    },
+    {
+      "name": "missedIntervals_at_capture",
+      "required": true,
+      "observed_value": "~144 (timeElapsed = 1784109509 - 1784022600 = 86909s; 86909/600 - 1 = 143 missed intervals, so amountAllocated = amountPerInterval * 144)",
+      "source": "derived from live_context captured_at 2026-07-14T09:58:29Z and lastBurnedTitanXIntervalStartTimestamp",
+      "command_if_missing": ""
+    }
+  ],
+  "source_code_basis": [
+    {
+      "file": "src/contracts/src/TorusBuyAndProcess.sol",
+      "function": "_calculateIntervalsTitanXBurn",
+      "symbols_or_lines": "lines 596-600",
+      "why_it_matters": "additionalAmount = amountPerInterval * missedIntervals accumulates all missed intervals into a single allocation; the only guard is a cap at totalTitanXBurn, not a per-interval bound"
+    },
+    {
+      "file": "src/contracts/src/TorusBuyAndProcess.sol",
+      "function": "swapTitanXForTorusAndBurn",
+      "symbols_or_lines": "lines 236-237, 254",
+      "why_it_matters": "incentive = (currInterval.amountAllocated * INCENTIVE_FEE) / BPS_DENOM is computed on the full amplified allocation and transferred to msg.sender"
+    },
+    {
+      "file": "src/contracts/src/TorusBuyAndProcess.sol",
+      "function": "swapTitanXForTorusAndBurn",
+      "symbols_or_lines": "line 231",
+      "why_it_matters": "IntervalAlreadyBurned check only prevents replay within the same interval slot; it does not limit accumulation across missed slots"
+    },
+    {
+      "file": "src/contracts/src/const/BuyAndProcessConst.sol",
+      "function": "constants",
+      "symbols_or_lines": "lines 4, 32, 35-36",
+      "why_it_matters": "INCENTIVE_FEE=150, BPS_DENOM=10000, INTERVALS_PER_DAY=144, INTERVAL_TIME=10 minutes confirm the arithmetic: cap triggers at missedIntervals >= 7199 (~50 days); currently ~143 missed intervals yield 144x amplification"
+    }
+  ],
+  "attacker_path": {
+    "actor": "any unprivileged EOA",
+    "attacker_inputs": [
+      "_deadline: any valid future timestamp (uint32)"
+    ],
+    "call_sequence": [
+      "1. Observe lastBurnedTitanXIntervalStartTimestamp and wait until block.timestamp - lastBurnedTitanXIntervalStartTimestamp > N * INTERVAL_TIME for desired N (N=1 already yields 2x; N=143 already elapsed at capture time; N=7199 hits full cap after ~50 days total inactivity)",
+      "2. Call TorusBuyAndProcess.swapTitanXForTorusAndBurn(_deadline)",
+      "3. burnTitanXIntervalUpdate modifier fires _intervalUpdateTitanXForBurning(), which calls _calculateIntervalsTitanXBurn(timeElapsed)",
+      "4. _totalAmountForInterval = amountPerInterval * (1 + missedIntervals), capped at totalTitanXBurn",
+      "5. titanXIntervalsBurn[lastTitanXBurnIntervalNumber].amountAllocated = _totalAmountForInterval",
+      "6. incentive = _totalAmountForInterval * 150 / 10000 transferred to msg.sender"
+    ],
+    "state_before": [
+      "totalTitanXBurn = 390047518149437255354831991687",
+      "lastBurnedTitanXIntervalStartTimestamp = 1784022600",
+      "lastTitanXBurnIntervalNumber = 53087",
+      "liquidityAdded = true",
+      "DAILY_ALLOCATION_TITAN_X_BURNING = 200 bps"
+    ],
+    "state_after": [
+      "titanXIntervalsBurn[53088].amountAllocated = amountPerInterval * (1 + missedIntervals)",
+      "titanXIntervalsBurn[53088].amountBurned = amountAllocated (set in swapTitanXForTorusAndBurn)",
+      "totalTitanXBurn reduced by amountAllocated",
+      "attacker receives incentive = amountAllocated * 150 / 10000 in TitanX"
+    ]
+  },
+  "extraction_analysis": {
+    "asset_or_reward": "TitanX ERC-20 tokens transferred from contract balance to msg.sender",
+    "attacker_gain": "At current live state (~143 missed intervals at capture): amountPerInterval = 390047518149437255354831991687 * 200 / 10000 / 144 = ~54173266409644063243726665; amountAllocated = 54173266409644063243726665 * 144 = ~7800950362028104946936639760; incentive = 7800950362028104946936639760 * 150 / 10000 = ~117014255430421574204049596 raw TitanX. At full cap (50 days inactivity): incentive = 390047518149437255354831991687 * 150 / 10000 = ~5850712772241558830322479875 raw TitanX",
+    "victim_or_protocol_loss": "Protocol's totalTitanXBurn reserve is depleted by amountAllocated (up to 100% at cap); future interval callers receive nothing; protocol burn activity is permanently impaired",
+    "why_gain_exceeds_entitlement": "A single caller is entitled to the incentive on one interval's allocation (amountPerInterval * 150 / 10000). The accumulation pattern grants them the incentive on N+1 intervals' worth of allocation in a single call. At current live state this is 144x entitlement; at cap it is 7200x. No mechanism bounds the per-call incentive to a single interval's share."
+  },
+  "local_proof_required": {
+    "test_type": "fork",
+    "test_file_to_add": "src/contracts/test/MissedIntervalIncentiveExtraction.t.sol",
+    "setup": [
+      "Fork mainnet at block 25530134 (live_context.json latest_block)",
+      "Instantiate TorusBuyAndProcess at its deployed address",
+      "Record attacker TitanX balance before call",
+      "Record totalTitanXBurn before call",
+      "Record lastBurnedTitanXIntervalStartTimestamp before call"
+    ],
+    "transaction_sequence": [
+      "vm.warp(block.timestamp + 0) // already ~144 missed intervals at capture; optionally vm.warp(block.timestamp + 50 days) for cap test",
+      "vm.prank(attacker)",
+      "torusBuyAndProcess.swapTitanXForTorusAndBurn(uint32(block.timestamp + 3600))"
+    ],
+    "expected_assertions": [
+      "uint256 incentiveReceived = titanX.balanceOf(attacker) - attackerBalanceBefore",
+      "uint256 singleIntervalIncentive = (totalTitanXBurnBefore * 200 / 10000 / 144) * 150 / 10000",
+      "assertGt(incentiveReceived, singleIntervalIncentive) // at minimum 2x with any missed interval",
+      "// For current live state (~143 missed intervals): assertApproxEqRel(incentiveReceived, singleIntervalIncentive * 144, 1e16)",
+      "// For cap test (50 days warp): assertApproxEqRel(incentiveReceived, totalTitanXBurnBefore * 150 / 10000, 1e16)"
+    ],
+    "reject_if_assertion_fails": "If incentiveReceived equals singleIntervalIncentive regardless of elapsed time, the accumulation is bounded and the finding is rejected. If incentiveReceived is proportional to missedIntervals and exceeds singleIntervalIncentive by the expected multiplier, the finding is confirmed."
+  },
+  "rejection_reason": "",
+  "deepwiki_source_url": "https://deepwiki.com/search/-deepwiki-exact-proof-gate-can_e69791bd-cc81-4d2f-9d50-f8db0afaea3d?mode=deep",
+  "deepwiki_verdict": "high_confidence_candidate"
+}

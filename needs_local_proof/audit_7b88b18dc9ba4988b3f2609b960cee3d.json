@@ -1,0 +1,159 @@
+{
+  "schema_version": "proof-gate-v1",
+  "verdict": "NEEDS_LOCAL_PROOF",
+  "gate_question": "Does this exact current protocol, with current live state, allow an unprivileged attacker to extract funds or rewards beyond entitlement?",
+  "paid_scope_match": "protocol_value_drain",
+  "active_protocol": {
+    "blueprint_project": "Torus",
+    "source_repo": "Matchatat/Torus--001",
+    "live_context_protocol": "TorusBuyAndProcess",
+    "context_matches_blueprint": true,
+    "context_source": "setup/live_context.json"
+  },
+  "candidate": {
+    "source_file": "src/contracts/src/TorusBuyAndProcess.sol",
+    "title_or_claim": "Sandwich MEV attack on swapTitanXForTorusAndBuild diverts protocol TitanX to genesisWallet and yields attacker profit",
+    "claimed_root_cause": "10% TWAP-based slippage tolerance in _swapTitanXForTorus and 10% liquiditySlippage in _addLiquidityBuild allow a same-block front-run to move spot price within tolerance, causing fewer Torus purchased and leftover TitanX transferred to genesisWallet instead of being used for LP",
+    "claimed_impact": "Attacker extracts sandwich profit from protocol interval allocation; protocol TitanX is diverted to genesisWallet rather than added as liquidity"
+  },
+  "hard_gates": {
+    "current_protocol_only": true,
+    "live_state_supports_preconditions": true,
+    "unprivileged_attacker": true,
+    "attacker_controls_trigger": true,
+    "exact_code_path_exists": true,
+    "concrete_fund_or_reward_gain": true,
+    "gain_is_beyond_entitlement": true,
+    "not_dos_grief_or_liveness_only": true,
+    "not_admin_governance_or_key_compromise": true,
+    "not_external_dependency_only": true,
+    "not_expected_behavior": true,
+    "not_known_duplicate": true
+  },
+  "live_preconditions": [
+    {
+      "name": "liquidityAddedBuild",
+      "required": true,
+      "observed_value": "true",
+      "source": "live_context field",
+      "command_if_missing": ""
+    },
+    {
+      "name": "titanXToTorusSlippage",
+      "required": true,
+      "observed_value": "10",
+      "source": "live_context field",
+      "command_if_missing": ""
+    },
+    {
+      "name": "liquiditySlippage",
+      "required": true,
+      "observed_value": "10",
+      "source": "live_context field",
+      "command_if_missing": ""
+    },
+    {
+      "name": "totalTitanXForBuild (non-zero, intervals remain)",
+      "required": true,
+      "observed_value": "5191597325509844865659654507",
+      "source": "live_context field",
+      "command_if_missing": ""
+    },
+    {
+      "name": "titanXIntervalsBuild[lastTitanXBuildIntervalNumber=53061].amountAllocated > 0 and amountBurned == 0",
+      "required": true,
+      "observed_value": "not directly sampled (live_context only sampled intervals 0 and 1)",
+      "source": "missing",
+      "command_if_missing": "cast call <TorusBuyAndProcess_address> 'titanXIntervalsBuild(uint32)(uint256,uint256)' 53061 --rpc-url mainnet"
+    },
+    {
+      "name": "TitanX/TORUS pool has sufficient liquidity for attacker front-run to move spot price ~8-10% vs TWAP",
+      "required": true,
+      "observed_value": "not sampled",
+      "source": "missing",
+      "command_if_missing": "cast call <titanXTorusPool> 'slot0()(uint160,int24,uint16,uint16,uint16,uint8,bool)' --rpc-url mainnet"
+    }
+  ],
+  "source_code_basis": [
+    {
+      "file": "src/contracts/src/TorusBuyAndProcess.sol",
+      "function": "_swapTitanXForTorus",
+      "symbols_or_lines": "lines 821-840",
+      "why_it_matters": "Uses 15-minute TWAP oracle for amountOutMinimum with 10% tolerance; same-block front-run does not move TWAP, so attacker can move spot price up to 10% below TWAP quote without triggering revert"
+    },
+    {
+      "file": "src/contracts/src/TorusBuyAndProcess.sol",
+      "function": "swapTitanXForTorusAndBuild",
+      "symbols_or_lines": "lines 956-966",
+      "why_it_matters": "Splits interval allocation into half (swap) and remainder (LP); any unprivileged caller can trigger; no caller restriction beyond nonReentrant and liquidityAddedBuild check"
+    },
+    {
+      "file": "src/contracts/src/TorusBuyAndProcess.sol",
+      "function": "_addLiquidityBuild",
+      "symbols_or_lines": "lines 994-1015",
+      "why_it_matters": "amount0Min/amount1Min set to 90% of desired; leftover tokens after increaseLiquidity are unconditionally transferred to genesisWallet; at manipulated price, leftover TitanX can be material rather than dust"
+    },
+    {
+      "file": "src/contracts/src/TorusBuyAndProcess.sol",
+      "function": "getTorusQuoteForTitanX",
+      "symbols_or_lines": "lines 1120-1140",
+      "why_it_matters": "TWAP window is 15 minutes; same-block manipulation does not affect TWAP, confirming oracle provides no protection against within-tolerance spot manipulation"
+    }
+  ],
+  "attacker_path": {
+    "actor": "Any unprivileged EOA or contract with sufficient TitanX capital",
+    "attacker_inputs": [
+      "Front-run: ISwapRouter.exactInput TitanX->TORUS on the TitanX/TORUS pool, moving spot price up by ~8-9% vs 15-min TWAP",
+      "Victim trigger: swapTitanXForTorusAndBuild(block.timestamp + 300) from neutral address",
+      "Back-run: sell acquired TORUS back for TitanX at elevated spot price"
+    ],
+    "call_sequence": [
+      "1. Attacker front-run tx: large TitanX->TORUS swap, spot price rises ~8-9% vs TWAP",
+      "2. swapTitanXForTorusAndBuild(_deadline): _swapTitanXForTorus(half) executes at manipulated spot, returns fewer TORUS (within 10% tolerance, no revert)",
+      "3. _addLiquidityBuild(remainder, fewerTorus): increaseLiquidity absorbs tokens at manipulated ratio; leftover TitanX (amount0 - used0 or amount1 - used1) transferred to genesisWallet",
+      "4. Attacker back-run tx: sell TORUS for TitanX at elevated price, capturing sandwich profit"
+    ],
+    "state_before": [
+      "liquidityAddedBuild = true",
+      "titanXIntervalsBuild[53061].amountBurned == 0",
+      "titanXIntervalsBuild[53061].amountAllocated > 0",
+      "totalTitanXForBuild = 5191597325509844865659654507"
+    ],
+    "state_after": [
+      "titanXIntervalsBuild[53061].amountBurned = amountAllocated (interval consumed)",
+      "genesisWallet receives material TitanX leftover (beyond dust)",
+      "LP receives less liquidity than expected",
+      "Attacker net-positive after gas from sandwich profit"
+    ]
+  },
+  "extraction_analysis": {
+    "asset_or_reward": "TitanX from protocol interval allocation",
+    "attacker_gain": "Sandwich profit: difference between TitanX spent in front-run and TitanX recovered in back-run after victim tx moves price; attacker is net-positive if manipulation stays within 10% slippage tolerance",
+    "victim_or_protocol_loss": "Protocol interval allocation is consumed with less LP efficiency; TitanX that should have been added as liquidity is instead sent to genesisWallet; LP depth is reduced relative to expected",
+    "why_gain_exceeds_entitlement": "Attacker is entitled to zero protocol TitanX; the sandwich extracts value from the protocol's interval allocation by exploiting the wide slippage tolerance and TWAP oracle's inability to reflect same-block manipulation"
+  },
+  "local_proof_required": {
+    "test_type": "fork",
+    "test_file_to_add": "src/contracts/test/SandwichBuildTest.t.sol",
+    "setup": [
+      "Fork Ethereum mainnet at block 25530134 (or later block where liquidityAddedBuild=true and interval 53061 has amountBurned==0)",
+      "Confirm titanXIntervalsBuild[lastTitanXBuildIntervalNumber].amountAllocated > 0 and amountBurned == 0",
+      "Fund attacker address with TitanX (e.g., 10x interval amountAllocated) via deal()",
+      "Record genesisWallet TitanX balance before attack",
+      "Record attacker TitanX balance before attack"
+    ],
+    "transaction_sequence": [
+      "vm.prank(attacker); ISwapRouter(UNISWAP_V3_ROUTER).exactInput(...) // front-run: TitanX->TORUS, move spot ~8-9% vs TWAP",
+      "vm.prank(neutral); torusBuyAndProcess.swapTitanXForTorusAndBuild(uint32(block.timestamp + 300))",
+      "vm.prank(attacker); ISwapRouter(UNISWAP_V3_ROUTER).exactInput(...) // back-run: TORUS->TitanX"
+    ],
+    "expected_assertions": [
+      "uint256 genesisBalanceAfter = IERC20(TITAN_X_ADDRESS).balanceOf(genesisWallet); assertGt(genesisBalanceAfter - genesisBalanceBefore, 1e18); // leftover is material, not dust",
+      "int256 attackerNet = int256(IERC20(TITAN_X_ADDRESS).balanceOf(attacker)) - int256(attackerBalanceBefore); assertGt(attackerNet, 0); // attacker is net-positive after gas"
+    ],
+    "reject_if_assertion_fails": "If genesisWallet leftover is consistently below 1e18 TitanX across all manipulation sizes within 10% tolerance, or if attacker is net-negative after gas at all realistic pool depths, reject as expected-behavior dust rounding"
+  },
+  "rejection_reason": "",
+  "deepwiki_source_url": "https://deepwiki.com/search/-deepwiki-exact-proof-gate-can_57941781-4be8-444a-a3bf-05fe418f521c?mode=deep",
+  "deepwiki_verdict": "needs_local_proof"
+}

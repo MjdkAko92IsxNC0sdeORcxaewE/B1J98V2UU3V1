@@ -1,0 +1,157 @@
+{
+  "schema_version": "proof-gate-v1",
+  "verdict": "HIGH_CONFIDENCE_CANDIDATE",
+  "gate_question": "Does this exact current protocol, with current live state, allow an unprivileged attacker to extract funds or rewards beyond entitlement?",
+  "paid_scope_match": "fund_extraction",
+  "active_protocol": {
+    "blueprint_project": "Torus",
+    "source_repo": "Matchatat/Torus--001",
+    "live_context_protocol": "TorusBuyAndProcess (ethereum mainnet, block 25530134)",
+    "context_matches_blueprint": true,
+    "context_source": "setup/live_context.json"
+  },
+  "candidate": {
+    "source_file": "src/contracts/src/TorusBuyAndProcess.sol",
+    "title_or_claim": "ETH burn interval accumulation cap enables full-pool incentive drain via swapETHForTorusAndBurn after 20 days of inactivity",
+    "claimed_root_cause": "_calculateIntervalsETHBurn caps _totalAmountForInterval at totalETHBurn when missed intervals exceed 2880 (20 days at 500 bps daily allocation), causing swapETHForTorusAndBurn to allocate the entire pool to one interval and pay 1.5% of the full pool as caller incentive",
+    "claimed_impact": "Any unprivileged EOA can extract 1.5% of totalETHBurn (currently ~0.033 ETH, growing with future distributeETHForBurning calls) in a single transaction after 20 days of function inactivity; remaining 98.5% is burned rather than distributed over intended intervals"
+  },
+  "hard_gates": {
+    "current_protocol_only": true,
+    "live_state_supports_preconditions": true,
+    "unprivileged_attacker": true,
+    "attacker_controls_trigger": true,
+    "exact_code_path_exists": true,
+    "concrete_fund_or_reward_gain": true,
+    "gain_is_beyond_entitlement": true,
+    "not_dos_grief_or_liveness_only": true,
+    "not_admin_governance_or_key_compromise": true,
+    "not_external_dependency_only": true,
+    "not_expected_behavior": true,
+    "not_known_duplicate": true
+  },
+  "live_preconditions": [
+    {
+      "name": "liquidityAdded",
+      "required": true,
+      "observed_value": "true",
+      "source": "live_context field common_views.liquidityAdded",
+      "command_if_missing": ""
+    },
+    {
+      "name": "totalETHBurn > 0",
+      "required": true,
+      "observed_value": "2218081612310240917 wei (~2.22 ETH)",
+      "source": "live_context field common_views.totalETHBurn",
+      "command_if_missing": ""
+    },
+    {
+      "name": "DAILY_ALLOCATION_ETH_BURNING",
+      "required": true,
+      "observed_value": "500 bps (5%); cap threshold = 10000/500 * 144 = 2880 intervals = 20 days",
+      "source": "live_context field common_views.DAILY_ALLOCATION_ETH_BURNING",
+      "command_if_missing": ""
+    },
+    {
+      "name": "lastBurnedETHIntervalStartTimestamp",
+      "required": true,
+      "observed_value": "1784021400 (~24.5 hours before block 25530134 capture at 2026-07-14T09:58:29Z); 20-day gap NOT yet elapsed; attacker must wait ~19 more days of inactivity",
+      "source": "live_context field common_views.lastBurnedETHIntervalStartTimestamp",
+      "command_if_missing": ""
+    },
+    {
+      "name": "contract ETH balance >= incentive",
+      "required": true,
+      "observed_value": "3428717047852500620 wei (~3.43 ETH) > incentive of ~0.033 ETH",
+      "source": "live_context field balances.native.raw",
+      "command_if_missing": ""
+    }
+  ],
+  "source_code_basis": [
+    {
+      "file": "src/contracts/src/TorusBuyAndProcess.sol",
+      "function": "_calculateIntervalsETHBurn",
+      "symbols_or_lines": "L626-635",
+      "why_it_matters": "Computes amountPerInterval = totalETHBurn * DAILY_ALLOCATION_ETH_BURNING / BPS_DENOM / INTERVALS_PER_DAY, accumulates missed intervals, then caps _totalAmountForInterval at totalETHBurn when accumulated amount exceeds pool balance \u2014 this cap is the root cause"
+    },
+    {
+      "file": "src/contracts/src/TorusBuyAndProcess.sol",
+      "function": "_intervalUpdateETHForBurning",
+      "symbols_or_lines": "L718-756",
+      "why_it_matters": "Called by burnETHIntervalUpdate modifier before swapETHForTorusAndBurn; writes the capped amountAllocated (= totalETHBurn) into ethIntervalsBurn[lastETHBurnIntervalNumber]"
+    },
+    {
+      "file": "src/contracts/src/TorusBuyAndProcess.sol",
+      "function": "swapETHForTorusAndBurn",
+      "symbols_or_lines": "L263-301",
+      "why_it_matters": "Reads currInterval.amountAllocated (= totalETHBurn after cap fires), computes incentive = amountAllocated * 150 / 10000, sends incentive to msg.sender via .call{value: incentive}, then subtracts full amountAllocated from totalETHBurn zeroing the pool"
+    },
+    {
+      "file": "src/contracts/src/TorusBuyAndProcess.sol",
+      "function": "swapETHForTorusAndBurn",
+      "symbols_or_lines": "L268",
+      "why_it_matters": "IntervalAlreadyBurned guard only prevents replay within the same interval number; it does not constrain the size of amountAllocated and is bypassed on first call after a gap"
+    },
+    {
+      "file": "src/contracts/src/const/BuyAndProcessConst.sol",
+      "function": "constants",
+      "symbols_or_lines": "L4, L32-36",
+      "why_it_matters": "INCENTIVE_FEE = 150, BPS_DENOM = 10000, INTERVALS_PER_DAY = 144, INTERVAL_TIME = 10 minutes \u2014 these confirm the 1.5% incentive rate and 20-day cap threshold arithmetic"
+    }
+  ],
+  "attacker_path": {
+    "actor": "Any unprivileged EOA",
+    "attacker_inputs": [
+      "_deadline: any valid future uint32 timestamp (e.g. block.timestamp + 300)"
+    ],
+    "call_sequence": [
+      "1. Wait until block.timestamp >= lastBurnedETHIntervalStartTimestamp + 2880 * 600 (20 days; currently ~19 days remain from block 25530134)",
+      "2. Call TorusBuyAndProcess.swapETHForTorusAndBurn(_deadline) as any EOA"
+    ],
+    "state_before": [
+      "liquidityAdded = true",
+      "totalETHBurn = 2218081612310240917 (grows with future distributeETHForBurning calls)",
+      "DAILY_ALLOCATION_ETH_BURNING = 500",
+      "lastBurnedETHIntervalStartTimestamp = 1784021400",
+      "ethIntervalsBurn[lastETHBurnIntervalNumber].amountBurned = 0 (guaranteed on first call after gap)"
+    ],
+    "state_after": [
+      "ethIntervalsBurn[newIntervalNumber].amountAllocated = totalETHBurn (full pool, capped)",
+      "ethIntervalsBurn[newIntervalNumber].amountBurned = totalETHBurn",
+      "incentive = totalETHBurn * 150 / 10000 transferred to msg.sender",
+      "totalETHBurn = 0 (zeroed)",
+      "attacker receives ~0.033 ETH at current state (scales with totalETHBurn at time of exploit)"
+    ]
+  },
+  "extraction_analysis": {
+    "asset_or_reward": "Native ETH from contract balance (sourced from totalETHBurn accounting)",
+    "attacker_gain": "totalETHBurn * 150 / 10000 = 1.5% of entire ETH burn pool in one call; at current state ~0.033 ETH, but totalETHBurn grows with each distributeETHForBurning call",
+    "victim_or_protocol_loss": "Protocol loses the full totalETHBurn in one transaction: 98.5% is burned via swap (accelerated beyond design intent) and 1.5% is extracted by attacker; all future interval-based distribution of that ETH is bypassed",
+    "why_gain_exceeds_entitlement": "The incentive is designed to reward processing one interval's allocation (~totalETHBurn/2880 per interval). After the cap fires, amountAllocated equals the entire pool, so the 1.5% incentive applies to 100% of totalETHBurn instead of 1/2880th of it \u2014 a ~2880x overallocation of the incentive"
+  },
+  "local_proof_required": {
+    "test_type": "fork",
+    "test_file_to_add": "src/contracts/test/ETHBurnIntervalAccumulation.t.sol",
+    "setup": [
+      "Fork Ethereum mainnet at block 25530134",
+      "Target: TorusBuyAndProcess deployed address (resolve from live_context)",
+      "address attacker = makeAddr('attacker')",
+      "vm.warp(block.timestamp + 21 days) to exceed 20-day cap threshold (2880 intervals * 600 seconds)"
+    ],
+    "transaction_sequence": [
+      "uint256 totalETHBurnBefore = target.totalETHBurn()",
+      "uint256 attackerBalBefore = attacker.balance",
+      "vm.prank(attacker)",
+      "target.swapETHForTorusAndBurn(uint32(block.timestamp + 300))"
+    ],
+    "expected_assertions": [
+      "assertEq(attacker.balance - attackerBalBefore, totalETHBurnBefore * 150 / 10000, 'incentive equals 1.5% of full pool')",
+      "assertEq(target.totalETHBurn(), 0, 'pool zeroed after single call')",
+      "assertGt(totalETHBurnBefore * 150 / 10000, 0, 'nonzero extraction')"
+    ],
+    "reject_if_assertion_fails": "If incentive received is less than totalETHBurnBefore * 150 / 10000, the cap did not trigger; increase vm.warp offset beyond 21 days and retry. If cap never triggers regardless of warp, the finding is invalid."
+  },
+  "rejection_reason": "",
+  "deepwiki_source_url": "https://deepwiki.com/search/-deepwiki-exact-proof-gate-can_e23801e9-8868-4e51-ab1f-249aa4124633?mode=deep",
+  "deepwiki_verdict": "high_confidence_candidate"
+}

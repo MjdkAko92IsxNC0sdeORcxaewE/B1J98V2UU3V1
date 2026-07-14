@@ -1,0 +1,159 @@
+{
+  "schema_version": "proof-gate-v1",
+  "verdict": "NEEDS_LOCAL_PROOF",
+  "gate_question": "Does this exact current protocol, with current live state, allow an unprivileged attacker to extract funds or rewards beyond entitlement?",
+  "paid_scope_match": "reward_extraction",
+  "active_protocol": {
+    "blueprint_project": "Torus",
+    "source_repo": "Moishetat/Torus--002",
+    "live_context_protocol": "TorusBuyAndProcess",
+    "context_matches_blueprint": true,
+    "context_source": "setup/live_context.json"
+  },
+  "candidate": {
+    "source_file": "src/contracts/src/TorusBuyAndProcess.sol",
+    "title_or_claim": "releaseFractalFunds() pre-call inflates interval allocation to extract excess TitanX incentive from swapTitanXForTorusAndBurn()",
+    "claimed_root_cause": "releaseFractalFunds() is public with only a time gate; calling it before swapTitanXForTorusAndBurn() inflates totalTitanXBurn before the burnTitanXIntervalUpdate modifier snapshots the allocation, yielding a higher incentive payout to the caller than the protocol intended",
+    "claimed_impact": "Attacker extracts approximately 154M TitanX extra incentive per fractal release window by pre-calling releaseFractalFunds() before swapTitanXForTorusAndBurn()"
+  },
+  "hard_gates": {
+    "current_protocol_only": true,
+    "live_state_supports_preconditions": false,
+    "unprivileged_attacker": true,
+    "attacker_controls_trigger": true,
+    "exact_code_path_exists": true,
+    "concrete_fund_or_reward_gain": true,
+    "gain_is_beyond_entitlement": true,
+    "not_dos_grief_or_liveness_only": true,
+    "not_admin_governance_or_key_compromise": true,
+    "not_external_dependency_only": true,
+    "not_expected_behavior": true,
+    "not_known_duplicate": true
+  },
+  "live_preconditions": [
+    {
+      "name": "block.timestamp >= lastFractalRelease + FRACTAL_RELEASE_INTERVAL",
+      "required": true,
+      "observed_value": "lastFractalRelease=1780682423; FRACTAL_RELEASE_INTERVAL=9504000 (110 days); window opens at 1790186423; live context captured at 2026-07-14T09:58:29Z (~timestamp 1784023109); window NOT currently open, approximately 71 days remaining",
+      "source": "live_context field",
+      "command_if_missing": ""
+    },
+    {
+      "name": "fractalTitanX > 0",
+      "required": true,
+      "observed_value": "74043750293778189300123718320",
+      "source": "live_context field",
+      "command_if_missing": ""
+    },
+    {
+      "name": "liquidityAdded == true",
+      "required": true,
+      "observed_value": "true",
+      "source": "live_context field",
+      "command_if_missing": ""
+    },
+    {
+      "name": "New 10-minute interval boundary opening (block.timestamp - lastBurnedTitanXIntervalStartTimestamp > INTERVAL_TIME)",
+      "required": true,
+      "observed_value": "lastBurnedTitanXIntervalStartTimestamp=1784022600; must be >600s elapsed since that timestamp at attack time; satisfiable at attack time by waiting for next interval boundary",
+      "source": "live_context field",
+      "command_if_missing": ""
+    }
+  ],
+  "source_code_basis": [
+    {
+      "file": "src/contracts/src/TorusBuyAndProcess.sol",
+      "function": "releaseFractalFunds()",
+      "symbols_or_lines": "L554-563",
+      "why_it_matters": "Public function with only a time gate; adds fractalTitanX to totalTitanXBurn and resets fractalTitanX to 0; callable by any EOA when time condition is met; no access control beyond the timestamp check"
+    },
+    {
+      "file": "src/contracts/src/TorusBuyAndProcess.sol",
+      "function": "swapTitanXForTorusAndBurn()",
+      "symbols_or_lines": "L226",
+      "why_it_matters": "Decorated with burnTitanXIntervalUpdate modifier which executes _intervalUpdateTitanXForBurning() BEFORE the function body; interval allocation is snapshotted from live totalTitanXBurn at modifier execution time, before the internal releaseFractalFunds() call at L249"
+    },
+    {
+      "file": "src/contracts/src/TorusBuyAndProcess.sol",
+      "function": "burnTitanXIntervalUpdate modifier",
+      "symbols_or_lines": "L125-128",
+      "why_it_matters": "Calls _intervalUpdateTitanXForBurning() before the function body (_); if totalTitanXBurn was inflated by a prior standalone releaseFractalFunds() call, the allocation computed here is proportionally higher"
+    },
+    {
+      "file": "src/contracts/src/TorusBuyAndProcess.sol",
+      "function": "_calculateIntervalsTitanXBurn()",
+      "symbols_or_lines": "L591-592",
+      "why_it_matters": "Reads totalTitanXBurn live to compute dailyAllocation = totalTitanXBurn * DAILY_ALLOCATION_TITAN_X_BURNING / BPS_DENOM; a pre-inflated totalTitanXBurn directly increases amountPerInterval and thus the incentive"
+    },
+    {
+      "file": "src/contracts/src/TorusBuyAndProcess.sol",
+      "function": "swapTitanXForTorusAndBurn()",
+      "symbols_or_lines": "L236-237",
+      "why_it_matters": "incentive = currInterval.amountAllocated * 150 / 10000; paid to msg.sender at L254; higher amountAllocated from inflated totalTitanXBurn yields a higher TitanX payout to the attacker"
+    },
+    {
+      "file": "src/contracts/src/TorusBuyAndProcess.sol",
+      "function": "swapTitanXForTorusAndBurn()",
+      "symbols_or_lines": "L249-251",
+      "why_it_matters": "Internal releaseFractalFunds() call runs AFTER the modifier has already snapshotted the allocation; if attacker pre-called releaseFractalFunds(), lastFractalRelease is already updated and this internal call is skipped, making the inflation permanent for this interval"
+    },
+    {
+      "file": "src/contracts/src/const/BuyAndProcessConst.sol",
+      "function": "constants",
+      "symbols_or_lines": "L4-5, L28-36",
+      "why_it_matters": "INCENTIVE_FEE=150, BPS_DENOM=10000 (1.5% incentive); FRACTAL_RELEASE_INTERVAL=110 days; INTERVALS_PER_DAY=144; INTERVAL_TIME=10 minutes; these values determine the magnitude of the extra incentive"
+    }
+  ],
+  "attacker_path": {
+    "actor": "Unprivileged EOA or attacker contract; no tokens, no role, no privileged access required",
+    "attacker_inputs": [
+      "timing only; attack requires waiting until block.timestamp >= 1790186423 and a fresh 10-minute interval boundary"
+    ],
+    "call_sequence": [
+      "1. Wait until block.timestamp >= 1790186423 (lastFractalRelease + FRACTAL_RELEASE_INTERVAL) AND timeElapsed > INTERVAL_TIME since lastBurnedTitanXIntervalStartTimestamp",
+      "2. Call releaseFractalFunds(): totalTitanXBurn += 74043750293778189300123718320 (becomes 464091268443215444654955710007), fractalTitanX = 0, lastFractalRelease = block.timestamp",
+      "3. Call swapTitanXForTorusAndBurn(deadline): burnTitanXIntervalUpdate modifier fires first, _intervalUpdateTitanXForBurning() reads inflated totalTitanXBurn, computes higher amountAllocated for currInterval; incentive = amountAllocated * 150 / 10000 is transferred to attacker at L254; internal releaseFractalFunds() at L249 is skipped because lastFractalRelease was already updated in step 2"
+    ],
+    "state_before": [
+      "totalTitanXBurn = 390047518149437255354831991687",
+      "fractalTitanX = 74043750293778189300123718320",
+      "lastFractalRelease = 1780682423",
+      "block.timestamp < 1790186423 (precondition not currently met)"
+    ],
+    "state_after": [
+      "totalTitanXBurn = 464091268443215444654955710007 (post releaseFractalFunds pre-call, before interval deduction)",
+      "fractalTitanX = 0",
+      "lastFractalRelease = block.timestamp",
+      "currInterval.amountAllocated computed from inflated totalTitanXBurn",
+      "attacker receives ~154M TitanX extra incentive compared to normal call ordering"
+    ]
+  },
+  "extraction_analysis": {
+    "asset_or_reward": "TitanX tokens transferred to msg.sender as incentive fee in swapTitanXForTorusAndBurn() at L254",
+    "attacker_gain": "Approximately 154M TitanX extra (delta \u2248 fractalTitanX * DAILY_ALLOCATION_TITAN_X_BURNING / BPS_DENOM / INTERVALS_PER_DAY * INCENTIVE_FEE / BPS_DENOM = 74043750293778189300123718320 * 200 / 10000 / 144 * 150 / 10000)",
+    "victim_or_protocol_loss": "Protocol burn pool loses excess TitanX that should have been burned rather than paid as incentive; the fractal release inflates the allocation base causing more TitanX to be diverted to the caller as incentive instead of being swapped and burned",
+    "why_gain_exceeds_entitlement": "Protocol design intent (evidenced by the ordering at L249-251) is that fractalTitanX is added to totalTitanXBurn AFTER the interval allocation is snapshotted by the modifier. By pre-calling releaseFractalFunds() as a standalone transaction, the attacker causes the modifier to see a totalTitanXBurn that includes fractal funds, yielding an allocation and incentive that the protocol did not intend for this interval. The nonReentrant guard on swapTitanXForTorusAndBurn does not prevent this because the two calls are sequential, not nested."
+  },
+  "local_proof_required": {
+    "test_type": "fork",
+    "test_file_to_add": "src/contracts/test/FractalInflationExploit.t.sol",
+    "setup": [
+      "Fork mainnet at latest block",
+      "vm.warp to lastFractalRelease + FRACTAL_RELEASE_INTERVAL + 1 (i.e., >= 1790186423)",
+      "vm.warp an additional INTERVAL_TIME + 1 seconds past lastBurnedTitanXIntervalStartTimestamp to ensure a fresh interval boundary is opening",
+      "Record totalTitanXBurn and fractalTitanX before attack"
+    ],
+    "transaction_sequence": [
+      "Baseline snapshot: call swapTitanXForTorusAndBurn(deadline) without pre-call; record TitanX balance delta of caller as incentive_baseline; revert to pre-call state",
+      "Attack: call releaseFractalFunds() then immediately call swapTitanXForTorusAndBurn(deadline); record TitanX balance delta of caller as incentive_attack"
+    ],
+    "expected_assertions": [
+      "assertGt(incentive_attack, incentive_baseline)",
+      "assertApproxEqAbs(incentive_attack - incentive_baseline, fractalTitanX_before * DAILY_ALLOCATION_TITAN_X_BURNING / BPS_DENOM / INTERVALS_PER_DAY * INCENTIVE_FEE / BPS_DENOM, tolerance)"
+    ],
+    "reject_if_assertion_fails": "If incentive_attack == incentive_baseline, the interval was already updated before the pre-call (attacker was not first in the interval) or the timing preconditions were not correctly set up in the test"
+  },
+  "rejection_reason": "Not rejected. live_state_supports_preconditions is false because the fractal release time gate (block.timestamp >= 1790186423) is not currently open as of live context capture 2026-07-14T09:58:29Z (~timestamp 1784023109); approximately 71 days remain before the window opens. All other hard gates pass: the code path is confirmed by source review, the attack logic is sound, the nonReentrant guard does not block sequential calls, and the attacker requires no tokens or privileges. Verdict is NEEDS_LOCAL_PROOF pending a fork test warped to a block where the time gate is satisfied.",
+  "deepwiki_source_url": "https://deepwiki.com/search/-deepwiki-exact-proof-gate-can_dfba6eb8-26ce-403f-bee6-fb5f9ac7764e?mode=deep",
+  "deepwiki_verdict": "needs_local_proof"
+}
