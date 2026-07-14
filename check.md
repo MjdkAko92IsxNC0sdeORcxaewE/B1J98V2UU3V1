@@ -17,8 +17,8 @@
 - [x] `setup/live_context.json` is block-pinned and protocol-bound.
 - [x] `repositories.json` is exactly `[]` before DeepWiki setup.
 - [x] Old project queues are excluded from the prepared machine.
-- [ ] Destination repository is public under `MjdkAko92IsxNC0sdeORcxaewE`.
-- [ ] Every expected workflow appears in the GitHub Actions workflows API.
+- [x] Destination repository is public under `MjdkAko92IsxNC0sdeORcxaewE`.
+- [x] Every expected workflow appears in the GitHub Actions workflows API.
 - [ ] Operator has configured required repository secrets before workflow launch.
 
 ## Live-context enrichment required
