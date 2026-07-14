@@ -1,0 +1,20 @@
+[
+  {
+    "question": "[File: 'src/contracts/src/TorusBuyAndProcess.sol -> Scope: Critical fund extraction or protocol value drain by an unprivileged attacker'] [Function: distributeTitanXForBuilding / distributeTitanXForBurning] Can an unprivileged attacker observe the asymmetry that distributeTitanXForBurning splits TitanX into fractalTitanX (28%) and totalTitanXBurn (72%), while distributeTitanXForBuilding puts 100% into totalTitanXForBuild with no fractal split, under the precondition that both functions are callable by anyone, causing the build pool to have 100% of deposited TitanX immediately available for interval allocation, violating the invariant that both pools have symmetric fractal-reserve mechanics, causing scoped impact: attacker can deposit TitanX to the build pool and immediately trigger swapTitanXForTorusAndBuild to extract 1.5% incentive on 100% of the deposit, vs only 72% in the burn pool? Local proof idea: unit-test, deposit 1e18 TitanX to each function, compare immediately extractable incentive from each pool.",
+    "url": "https://deepwiki.com/search/-deepwiki-candidate-triage-pro_1aaa34c5-d412-462c-9b86-4d48aff32407?mode=deep",
+    "timestamp": "2026-07-14 15:59:42.180606",
+    "report_generated": false
+  },
+  {
+    "question": "[File: 'src/contracts/src/TorusBuyAndProcess.sol -> Scope: Critical fund extraction or protocol value drain by an unprivileged attacker'] [Function: _calculateIntervalsTitanXBurn / uint128 truncation] Can an unprivileged attacker trigger a uint128 truncation in _calculateIntervalsTitanXBurn under the precondition that totalTitanXBurn exceeds type(uint128).max (~3.4e38), causing the cap at line 598-600 (uint128(totalTitanXBurn)) to silently truncate the value, resulting in _totalAmountForInterval being set to a truncated (much smaller) value, violating the invariant that interval allocation is correctly bounded by totalTitanXBurn, causing scoped impact: interval allocation is silently reduced, causing the burn function to swap far less TitanX than intended and the incentive to be proportionally smaller? Local proof idea: fuzz test with totalTitanXBurn > 2^128, call _calculateIntervalsTitanXBurn, assert _totalAmountForInterval == totalTitanXBurn % 2^128 (truncated).",
+    "url": "https://deepwiki.com/search/-deepwiki-candidate-triage-pro_9a05e191-2cb4-44b6-b164-87978f064150?mode=deep",
+    "timestamp": "2026-07-14 15:59:53.598838",
+    "report_generated": false
+  },
+  {
+    "question": "[File: 'src/contracts/src/TorusBuyAndProcess.sol -> Scope: Critical fund extraction or protocol value drain by an unprivileged attacker'] [Function: swapTitanXForTorusAndBuild / totalTitanXForBuild underflow] Can an unprivileged attacker trigger an underflow in totalTitanXForBuild at line 961 (totalTitanXForBuild -= titanXToUse + incentive) under the precondition that totalTitanXForBuild is exactly equal to currInterval.amountAllocated but rounding in _calculateIntervalsTitanXBuild causes amountAllocated to slightly exceed totalTitanXForBuild, causing a Solidity 0.8 underflow revert, violating the invariant that totalTitanXForBuild always covers the allocated amount, causing scoped impact: the build function is permanently bricked for that interval, locking TitanX in the contract? Local proof idea: fuzz test with totalTitanXForBuild values near interval allocation boundaries, assert no underflow revert occurs.",
+    "url": "https://deepwiki.com/search/-deepwiki-candidate-triage-pro_b4089835-8219-40e3-bb0b-5c56a537b06e?mode=deep",
+    "timestamp": "2026-07-14 16:00:05.052999",
+    "report_generated": false
+  }
+]
