@@ -1,0 +1,10 @@
+name: Actions Index Refresh
+
+on:
+  workflow_dispatch:
+
+jobs:
+  index:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo ready
