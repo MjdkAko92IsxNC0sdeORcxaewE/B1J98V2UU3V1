@@ -201,3 +201,5 @@ jobs:
         run: python workflow_chain.py advance --stage 4 --same-workflow 4_run_automation.yml --next-workflow 5_run_report.yml --smoke-limit "${{ inputs.smoke_limit }}"
 
 # Workflow registration refresh for migrated repository.
+
+# Actions registration refresh.

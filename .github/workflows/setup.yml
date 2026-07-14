@@ -111,3 +111,5 @@ jobs:
           fi
 
 # Workflow registration refresh for migrated repository.
+
+# Actions registration refresh.
