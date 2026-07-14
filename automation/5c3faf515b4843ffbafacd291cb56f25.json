@@ -1,0 +1,38 @@
+[
+  {
+    "question": "[File: 'src/contracts/src/TorusBuyAndProcess.sol -> Scope: Critical reward extraction or unfair reward access by an unprivileged attacker'] [Function: swapTitanXForTorusAndBurn + swapTitanXForTorusAndBuild + swapETHForTorusAndBurn + swapETHForTorusAndBuild] Can an unprivileged attacker call all four swap functions in a single block to extract maximum incentives (TitanX from burn, ETH from burn, TitanX from build, ETH from build) simultaneously, under preconditions: all four intervals have valid allocations, call sequence: [call all four swap functions in one block], violating invariant: total incentive extraction per block must not exceed the protocol's intended reward budget across all flows, causing scoped impact: attacker extracts maximum combined incentive from all four flows in one block? Local proof idea: fork test, call all four functions in one block, assert total incentive vs protocol budget.",
+    "url": "https://deepwiki.com/search/-deepwiki-candidate-triage-pro_32567619-ace3-49c7-b1af-d30b687d5d72?mode=deep",
+    "timestamp": "2026-07-14 15:57:06.747839",
+    "report_generated": false
+  },
+  {
+    "question": "[File: 'src/contracts/src/TorusBuyAndProcess.sol -> Scope: Critical reward extraction or unfair reward access by an unprivileged attacker'] [Function: _intervalUpdateTitanXForBurning] Can an unprivileged attacker exploit the interval timestamp update logic (line 667-669: lastBurnedTitanXIntervalStartTimestamp = _intervalStart + (_missedIntervals * INTERVAL_TIME)) to cause the timestamp to advance incorrectly when _missedIntervals is computed differently in the two branches (lastBurnedTitanXIntervalStartTimestamp == 0 vs != 0), creating a gap or overlap in interval tracking, under preconditions: first interval update (lastBurnedTitanXIntervalStartTimestamp == 0), call sequence: [call swapTitanXForTorusAndBurn at various timestamps], violating invariant: interval timestamps must advance monotonically by exactly INTERVAL_TIME per interval, causing scoped impact: interval timestamp drift allows an attacker to claim multiple intervals' allocations in a single call? Local proof idea: unit test, call swapTitanXForTorusAndBurn at t=startTimeStamp + 2*INTERVAL_TIME, assert lastBurnedTitanXIntervalStartTimestamp == startTimeStamp + 2*INTERVAL_TIME.",
+    "url": "https://deepwiki.com/search/-deepwiki-candidate-triage-pro_b5d45b8d-7644-4c14-826b-c22fcb2b0179?mode=deep",
+    "timestamp": "2026-07-14 15:57:18.615825",
+    "report_generated": false
+  },
+  {
+    "question": "[File: 'src/contracts/src/TorusBuyAndProcess.sol -> Scope: Critical reward extraction or unfair reward access by an unprivileged attacker'] [Function: distributeETHForBurning + releaseFractalFunds] Can an unprivileged attacker call distributeETHForBurning with a large ETH amount to accumulate fractalETH, then call releaseFractalFunds() after 110 days to move fractalETH into totalETHBurn, then immediately call swapETHForTorusAndBurn to extract 1.5% of the inflated totalETHBurn as incentive, under preconditions: block.timestamp >= lastFractalRelease + 110 days, fractalETH > 0, valid ETH burn interval, call sequence: [deposit ETH, wait 110 days, call releaseFractalFunds(), call swapETHForTorusAndBurn(deadline)], violating invariant: fractal release must not create an exploitable incentive spike, causing scoped impact: attacker extracts disproportionate ETH incentive by timing the fractal release with the burn call? Local proof idea: fork test, deposit ETH, warp 110 days, call releaseFractalFunds then swapETHForTorusAndBurn, measure incentive delta.",
+    "url": "https://deepwiki.com/search/-deepwiki-candidate-triage-pro_9d3f8c44-5e9e-42d9-b272-f3a7432e89e5?mode=deep",
+    "timestamp": "2026-07-14 15:57:31.114291",
+    "report_generated": false
+  },
+  {
+    "question": "[File: 'src/contracts/src/TorusBuyAndProcess.sol -> Scope: Critical reward extraction or unfair reward access by an unprivileged attacker'] [Function: swapTitanXForTorusAndBurn] Can an unprivileged attacker exploit the fact that totalTitanXBurn is decremented by currInterval.amountAllocated (line 247) but the actual TitanX transferred to the contract via distributeTitanXForBurning may differ from totalTitanXBurn due to the fractal split (only 72% goes to totalTitanXBurn, 28% to fractalTitanX), causing totalTitanXBurn to exceed the actual TitanX available for burning, under preconditions: totalTitanXBurn > actual TitanX balance, call sequence: [call swapTitanXForTorusAndBurn when totalTitanXBurn > contract TitanX balance], violating invariant: totalTitanXBurn must always be <= actual TitanX balance held by the contract for burn purposes, causing scoped impact: swap fails due to insufficient TitanX balance, or accounting becomes inconsistent? Local proof idea: unit test, deposit TitanX, verify totalTitanXBurn (72%) vs actual balance, call swapTitanXForTorusAndBurn, assert no underflow.",
+    "url": "https://deepwiki.com/search/-deepwiki-candidate-triage-pro_72cf1e5d-ff6f-488e-bbaf-5f148bd01239?mode=deep",
+    "timestamp": "2026-07-14 15:57:43.805955",
+    "report_generated": false
+  },
+  {
+    "question": "[File: 'src/contracts/src/TorusBuyAndProcess.sol -> Scope: Critical reward extraction or unfair reward access by an unprivileged attacker'] [Function: swapETHForTorusAndBurn] Can an unprivileged attacker exploit the fact that totalETHBurn is decremented by currInterval.amountAllocated (line 287) but the actual ETH balance includes both totalETHBurn and totalETHForBuild and fractalETH, causing the burn swap to consume ETH that was intended for the build flow, under preconditions: contract ETH balance is split between burn and build flows, call sequence: [call swapETHForTorusAndBurn when totalETHBurn > 0 but actual ETH balance is shared], violating invariant: ETH for burn flow must be segregated from ETH for build flow at the balance level, causing scoped impact: build flow ETH is consumed by burn flow, leaving build flow unable to execute? Local proof idea: fork test, deposit ETH to both flows, drain burn flow, attempt build flow, assert ETH balance accounting.",
+    "url": "https://deepwiki.com/search/-deepwiki-candidate-triage-pro_294975bc-b4a4-4e9d-ba24-3e5232ed7354?mode=deep",
+    "timestamp": "2026-07-14 15:57:57.220721",
+    "report_generated": false
+  },
+  {
+    "question": "[File: 'src/contracts/src/TorusBuyAndProcess.sol -> Scope: Critical reward extraction or unfair reward access by an unprivileged attacker'] [Function: swapTitanXForTorusAndBuild] Can an unprivileged attacker call swapTitanXForTorusAndBuild when totalTitanXForBuild is very small (near 0), causing currInterval.amountAllocated to be 0 (since allocation = totalTitanXForBuild * DAILY_ALLOCATION / BPS_DENOM / INTERVALS_PER_DAY rounds to 0), resulting in incentive = 0 and titanXToUse = 0, but still executing the swap and liquidity addition with 0 amounts, under preconditions: totalTitanXForBuild is very small, call sequence: [call swapTitanXForTorusAndBuild(deadline) with near-zero totalTitanXForBuild], violating invariant: swap functions must not execute with 0 allocation (wasting gas and potentially causing downstream issues), causing scoped impact: interval is marked as used (amountBurned set) with 0 allocation, blocking the next legitimate caller? Local proof idea: unit test with totalTitanXForBuild = 1 wei, call swapTitanXForTorusAndBuild, assert amountBurned == 0 and interval not consumed.",
+    "url": "https://deepwiki.com/search/-deepwiki-candidate-triage-pro_dc063b6b-1aaf-471b-849f-90ef8cc32e85?mode=deep",
+    "timestamp": "2026-07-14 15:58:11.550603",
+    "report_generated": false
+  }
+]
